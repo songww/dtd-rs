@@ -6,7 +6,7 @@ use nom::combinator::{map, recognize, value};
 use nom::multi::separated_list1;
 use nom::sequence::{delimited, pair, tuple};
 
-pub mod attribute;
+pub mod attlist;
 pub mod element;
 pub mod entity;
 

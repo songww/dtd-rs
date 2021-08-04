@@ -243,3 +243,53 @@ fn att_value(i: &str) -> Result<AttValue> {
         AttValue,
     )(i)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::attlist_decl;
+
+    // <!ATTLIST termdef
+    //           id      ID      #REQUIRED
+    //           name    CDATA   #IMPLIED>
+    #[test]
+    fn test_att_list_1() {
+        let attlist = attlist_decl(
+            r#"<!ATTLIST termdef
+             id      ID      #REQUIRED
+             name    CDATA   #IMPLIED>"#,
+        );
+        assert!(
+            attlist.is_ok(),
+            "{}",
+            attlist.as_ref().unwrap_err().to_string()
+        );
+    }
+    // <!ATTLIST list
+    //           type    (bullets|ordered|glossary)  "ordered">
+    #[test]
+    fn test_att_list_2() {
+        let attlist = attlist_decl(
+            r#"<!ATTLIST list
+             type    (bullets|ordered|glossary)  "ordered">"#,
+        );
+        assert!(
+            attlist.is_ok(),
+            "{}",
+            attlist.as_ref().unwrap_err().to_string()
+        );
+    }
+    // <!ATTLIST form
+    //           method  CDATA   #FIXED "POST">
+    #[test]
+    fn test_att_list_3() {
+        let attlist = attlist_decl(
+            r#"<!ATTLIST form
+             method  CDATA   #FIXED "POST">"#,
+        );
+        assert!(
+            attlist.is_ok(),
+            "{}",
+            attlist.as_ref().unwrap_err().to_string()
+        );
+    }
+}
