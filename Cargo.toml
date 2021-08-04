@@ -1,0 +1,14 @@
+[package]
+name = "dtd"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+nom = "6"
+syn = "1"
+visibility = { version = "0.0", optional = true }
+
+[features]
+it = [ "visibility" ]
