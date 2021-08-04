@@ -1,11 +1,10 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_while1},
-    character::complete::{char, none_of, one_of, space0, space1},
+    bytes::complete::{is_not, tag},
+    character::complete::{char, space0, space1},
     combinator::{map, opt},
-    multi::{many0, many1, separated_list1},
+    multi::{many0, separated_list1},
     sequence::{delimited, pair, tuple},
-    FindToken,
 };
 
 use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Result};

@@ -1,17 +1,14 @@
 use nom::branch::alt;
-use nom::bytes::complete::{is_a, tag, take_until, take_while, take_while1, take_while_m_n};
+use nom::bytes::complete::{is_a, tag, take_until, take_while, take_while_m_n};
 use nom::character::complete::space1;
-use nom::character::{is_digit, is_hex_digit};
+
 use nom::combinator::{map, recognize, value};
 use nom::multi::separated_list1;
 use nom::sequence::{delimited, pair, tuple};
 
-#[cfg_attr(feature = "it", visibility::make(pub))]
-mod attribute;
-#[cfg_attr(feature = "it", visibility::make(pub))]
-mod element;
-#[cfg_attr(feature = "it", visibility::make(pub))]
-mod entity;
+pub mod attribute;
+pub mod element;
+pub mod entity;
 
 /// 被解析的字符数据（parsed character data）
 /// 这PCDATA 是会被解析器解析的文本。些文本将被解析器检查实体以及标记。

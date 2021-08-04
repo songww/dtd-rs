@@ -40,15 +40,6 @@ pub enum Repeatable<T> {
     ZeroOrManyTimes(T),
 }
 
-/*
-#[derive(Debug)]
-pub enum SubElement<'i> {
-    AtLeastOnce(Vec<Element<'i>>),
-    // AtMostOnce(Option<Element<'i>>),
-    // Once(Element<'i>),
-}
-*/
-
 #[derive(Debug)]
 pub struct MixedPCDATA<'i>(Vec<NameOrRef<'i>>);
 
@@ -200,8 +191,8 @@ fn any(i: &str) -> nom::IResult<&str, ElementCategory> {
 /// <!ELEMENT 元素名称 类别>
 /// ```
 /// use nom::Finish;
-/// use dtd::parsers::element::{element, Element};
-/// use dtd::parsers::Name;
+/// use dtd::parser::element::{element, Element};
+/// use dtd::parser::Name;
 /// let el = element("<!ELEMENT b (#PCDATA)>");
 /// assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
 /// let el = element("<!ELEMENT p (#PCDATA|a|ul|b|i|em)*>").finish();
