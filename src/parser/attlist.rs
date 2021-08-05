@@ -1,32 +1,34 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
-    character::complete::{char, multispace1, space0, space1},
+    character::complete::{char, multispace0, multispace1},
     combinator::{map, opt},
     multi::{many0, separated_list1},
     sequence::{delimited, pair, tuple},
 };
 
-use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Result};
+use super::{
+    name, name_or_reference, nmtoken, reference, Name, NameOrReference, Nmtoken, Reference, Result,
+};
 
 /// 属性可提供有关元素的额外信息。
 ///
 /// 属性总是被置于某元素的开始标签中。属性总是以名称/值的形式成对出现的。
 #[derive(Debug)]
-struct AttlistDecl<'i> {
+pub struct AttlistDecl<'i> {
     name: Name<'i>,
     att_defs: Vec<AttDef<'i>>,
 }
 
 /// AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
-fn attlist_decl(i: &str) -> nom::IResult<&str, AttlistDecl> {
+pub(super) fn attlist_decl(i: &str) -> nom::IResult<&str, AttlistDecl> {
     map(
         tuple((
             tag("<!ATTLIST"),
-            space1,
+            multispace1,
             name,
             many0(att_def),
-            space0,
+            multispace0,
             tag(">"),
         )),
         |(_, _, name, att_defs, _, _)| AttlistDecl { name, att_defs },
@@ -35,7 +37,7 @@ fn attlist_decl(i: &str) -> nom::IResult<&str, AttlistDecl> {
 
 #[derive(Debug)]
 pub struct AttDef<'i> {
-    name: Name<'i>,
+    name: NameOrReference<'i>,
     att_type: AttType<'i>,
     default_decl: DefaultDecl<'i>,
 }
@@ -45,7 +47,7 @@ fn att_def(i: &str) -> nom::IResult<&str, AttDef> {
     map(
         tuple((
             multispace1,
-            name,
+            name_or_reference,
             multispace1,
             att_type,
             multispace1,
@@ -151,11 +153,11 @@ fn notation_type(i: &str) -> Result<NotationType> {
     map(
         tuple((
             tag("NOTATION"),
-            space1,
+            multispace1,
             tag("("),
-            space0,
-            separated_list1(tuple((space0, tag("|"), space0)), name),
-            space0,
+            multispace0,
+            separated_list1(tuple((multispace0, tag("|"), multispace0)), name),
+            multispace0,
             tag(")"),
         )),
         |(_, _, _, _, names, _, _)| NotationType(names),
@@ -173,9 +175,9 @@ fn enumeration(i: &str) -> Result<Enumeration> {
     map(
         tuple((
             tag("("),
-            space0,
-            separated_list1(tuple((space0, tag("|"), space0)), nmtoken),
-            space0,
+            multispace0,
+            separated_list1(tuple((multispace0, tag("|"), multispace0)), nmtoken),
+            multispace0,
             tag(")"),
         )),
         |(_, _, tokens, _, _)| Enumeration(tokens),
@@ -207,7 +209,7 @@ fn default_decl(i: &str) -> Result<DefaultDecl> {
         map(tag("#REQUIRED"), |_| DefaultDecl::Required),
         map(tag("#IMPLIED"), |_| DefaultDecl::Implied),
         map(
-            pair(opt(pair(tag("#FIXED"), space1)), att_value),
+            pair(opt(pair(tag("#FIXED"), multispace1)), att_value),
             |(_, att_value)| DefaultDecl::Fixed(att_value),
         ),
     ))(i)
@@ -296,6 +298,21 @@ mod tests {
         let attlist = attlist_decl(
             r#"<!ATTLIST form
              method  CDATA   #FIXED "POST">"#,
+        )
+        .finish();
+        assert!(
+            attlist.is_ok(),
+            "{}",
+            attlist.as_ref().unwrap_err().to_string()
+        );
+    }
+
+    #[test]
+    fn test_att_list_4() {
+        let attlist = attlist_decl(
+            r#"<!ATTLIST table
+        %align-h.att;
+        width     %measure;  #IMPLIED>"#,
         )
         .finish();
         assert!(

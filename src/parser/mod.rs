@@ -1,14 +1,15 @@
 use nom::branch::alt;
-use nom::bytes::complete::{is_a, tag, take_until, take_while, take_while_m_n};
-use nom::character::complete::space1;
+use nom::bytes::complete::{is_a, tag, take_till, take_until, take_while, take_while_m_n};
+use nom::character::complete::{char, multispace0, space1};
+use nom::Finish;
 
 use nom::combinator::{map, recognize, value};
-use nom::multi::separated_list1;
+use nom::multi::{many0, separated_list1};
 use nom::sequence::{delimited, pair, tuple};
 
-pub mod attlist;
-pub mod element;
-pub mod entity;
+mod attlist;
+mod element;
+mod entity;
 
 /// 被解析的字符数据（parsed character data）
 /// 这PCDATA 是会被解析器解析的文本。些文本将被解析器检查实体以及标记。
@@ -17,25 +18,25 @@ pub mod entity;
 ///
 /// 不过，被解析的字符数据不应当包含任何 &、< 或者 > 字符；需要使用 &amp;、&lt; 以及 &gt; 实体来分别替换它们。
 #[derive(Debug)]
-struct PCDATA(String);
+pub struct PCDATA<'i>(&'i str);
 
 /// 字符数据（character data）。
 ///
 /// CDATA 是不会被解析器解析的文本。在这些文本中的标签不会被当作标记来对待，其中的实体也不会被展开。
 #[derive(Debug)]
-struct CDATA(String);
+pub struct CDATA<'i>(&'i str);
+
+#[derive(Debug)]
+pub struct CommentDecl;
 
 /// '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
-#[derive(Debug)]
-struct Comment;
-
-fn comment(i: &str) -> nom::IResult<&str, Comment> {
+fn comment_decl(i: &str) -> nom::IResult<&str, CommentDecl> {
     map(
         value(
             (), // Output is thrown away.
-            tuple((tag("(*"), take_until("*)"), tag("*)"))),
+            tuple((tag("<!--"), many0(char('-')), take_until("-->"), tag("-->"))),
         ),
-        |_| Comment,
+        |_| CommentDecl,
     )(i)
 }
 
@@ -143,6 +144,27 @@ fn nmtokens(i: &str) -> Result<Vec<Nmtoken>> {
     separated_list1(space1, nmtoken)(i)
 }
 
+#[derive(Debug)]
+pub struct MixedPCDATA<'i>(Vec<NameOrReference<'i>>);
+
+#[derive(Debug)]
+pub enum NameOrReference<'i> {
+    Name(Name<'i>),
+    Reference(PEReference<'i>),
+}
+
+fn map_name(i: &str) -> nom::IResult<&str, NameOrReference> {
+    map(name, |n| NameOrReference::Name(n))(i)
+}
+
+fn map_pereference(i: &str) -> nom::IResult<&str, NameOrReference> {
+    map(pereference, |n| NameOrReference::Reference(n))(i)
+}
+
+fn name_or_reference(i: &str) -> Result<NameOrReference> {
+    alt((map_name, map_pereference))(i)
+}
+
 type Result<'i, T> = nom::IResult<&'i str, T>;
 
 #[derive(Debug)]
@@ -183,16 +205,130 @@ fn reference(i: &str) -> Result<Reference> {
 /// PEReference ::= '%' Name ';'         [VC: Entity Declared]
 ///                                      [WFC: No Recursion]
 ///                                      [WFC: In DTD]
-pub fn pereference(i: &str) -> Result<PEReference<'_>> {
-    map(tuple((tag("%"), name, tag(";"))), |(_, n, _)| {
-        PEReference(n)
-    })(i)
+fn pereference(i: &str) -> Result<PEReference<'_>> {
+    map(delimited(tag("%"), name, tag(";")), |n| PEReference(n))(i)
 }
 
 /// EntityRef   ::= '&' Name ';'         [WFC: Entity Declared]
 ///                                      [VC: Entity Declared]
 ///                                      [WFC: Parsed Entity]
 ///                                      [WFC: No Recursion]
-pub fn entity_ref(i: &str) -> Result<EntityRef<'_>> {
+fn entity_ref(i: &str) -> Result<EntityRef<'_>> {
     map(tuple((tag("&"), name, tag(";"))), |(_, n, _)| EntityRef(n))(i)
+}
+
+#[derive(Debug)]
+pub struct SystemLiteral<'i>(&'i str);
+
+///	SystemLiteral	   ::=   	('"' [^"]* '"') | ("'" [^']* "'")
+fn system_literal(i: &str) -> Result<SystemLiteral> {
+    map(
+        alt((
+            delimited(char('"'), take_until("\""), char('"')),
+            delimited(char('\''), take_until("'"), char('\'')),
+        )),
+        SystemLiteral,
+    )(i)
+}
+
+#[derive(Debug)]
+pub struct PubidLiteral<'i>(&'i str);
+
+/// PubidLiteral	   ::=   	'"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
+fn pubid_literal(i: &str) -> Result<PubidLiteral> {
+    map(
+        alt((
+            delimited(char('"'), take_till(is_pubid_char), char('"')),
+            delimited(char('\''), take_till(is_pubid_char), char('\'')),
+        )),
+        |s| PubidLiteral(s),
+    )(i)
+}
+
+/// PubidChar	   ::=   	#x20 | #xD | #xA | [a-zA-Z0-9] | [-'()+,./:=?;!*#@$_%]
+fn is_pubid_char(c: char) -> bool {
+    !(c == ' '
+        || c == '\r'
+        || c == '\n'
+        || c.is_ascii_alphanumeric()
+        || "-'()+,./:=?;!*#@$_%".contains(c))
+}
+
+#[derive(Debug)]
+pub enum ElementType<'i> {
+    Element(element::ElementDecl<'i>),
+    Entity(entity::EntityDecl<'i>),
+    Attlist(attlist::AttlistDecl<'i>),
+    Comment(CommentDecl),
+}
+
+pub fn parse(i: &str) -> Result<Vec<ElementType>> {
+    many0(alt((
+        map(
+            delimited(multispace0, attlist::attlist_decl, multispace0),
+            ElementType::Attlist,
+        ),
+        map(
+            delimited(multispace0, element::element_decl, multispace0),
+            ElementType::Element,
+        ),
+        map(
+            delimited(multispace0, entity::entity_decl, multispace0),
+            ElementType::Entity,
+        ),
+        map(
+            delimited(multispace0, comment_decl, multispace0),
+            ElementType::Comment,
+        ),
+    )))(i)
+    // .finish()
+}
+
+#[cfg(test)]
+mod tests {
+    use nom::Finish;
+
+    use super::{comment_decl, pereference};
+
+    #[test]
+    fn test_comment_decl() {
+        let result = comment_decl(
+            r#"<!--
+======================================================================
+    Docutils Generic DTD
+======================================================================
+:Author: David Goodger
+:Contact: docutils-develop@lists.sourceforge.net
+:Revision: $Revision: 8767 $
+:Date: $Date: 2021-06-17 16:33:28 +0200 (Do, 17. Jun 2021) $
+:Copyright: This DTD has been placed in the public domain.
+:Filename: docutils.dtd
+
+More information about this DTD (document type definition) and the
+Docutils project can be found at http://docutils.sourceforge.net/.
+The latest version of this DTD is available from
+http://docutils.sourceforge.net/docs/ref/docutils.dtd.
+
+The formal public identifier for this DTD is::
+
+    +//IDN docutils.sourceforge.net//DTD Docutils Generic//EN//XML
+-->"#,
+        )
+        .finish();
+        assert!(
+            result.is_ok(),
+            "{}",
+            result.as_ref().unwrap_err().to_string()
+        );
+    }
+
+    #[test]
+    fn test_pereference() {
+        let result = pereference("%align-h.att;").finish();
+        assert!(
+            result.is_ok(),
+            "{}",
+            result.as_ref().unwrap_err().to_string()
+        );
+    }
 }

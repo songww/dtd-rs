@@ -7,7 +7,7 @@ use nom::{
     sequence::{terminated, tuple},
 };
 
-use super::{name, pereference, Name, PEReference};
+use super::{map_name, map_pereference, name, MixedPCDATA, Name};
 
 /// 元素是 XML 以及 HTML 文档的主要构建模块。
 ///
@@ -15,7 +15,7 @@ use super::{name, pereference, Name, PEReference};
 /// XML 元素的例子是 "note" 和 "message" 。
 /// 元素可包含文本、其他元素或者是空的。空的 HTML 元素的例子是 "hr"、"br" 以及 "img"。
 #[derive(Debug)]
-pub struct Element<'i> {
+pub struct ElementDecl<'i> {
     name: Name<'i>,
     category: ElementCategory<'i>,
 }
@@ -31,30 +31,13 @@ pub enum ElementCategory<'i> {
 }
 
 #[derive(Debug)]
-pub struct SubElements<'i>(Vec<Repeatable<Element<'i>>>);
+pub struct SubElements<'i>(Vec<Repeatable<ElementDecl<'i>>>);
 
 #[derive(Debug)]
 pub enum Repeatable<T> {
     AtLeastOnce(T),
     AtMostOnce(T),
     ZeroOrManyTimes(T),
-}
-
-#[derive(Debug)]
-pub struct MixedPCDATA<'i>(Vec<NameOrRef<'i>>);
-
-#[derive(Debug)]
-pub enum NameOrRef<'i> {
-    Name(Name<'i>),
-    Ref(PEReference<'i>),
-}
-
-fn map_name(i: &str) -> nom::IResult<&str, NameOrRef> {
-    map(name, |n| NameOrRef::Name(n))(i)
-}
-
-fn map_pereference(i: &str) -> nom::IResult<&str, NameOrRef> {
-    map(pereference, |n| NameOrRef::Ref(n))(i)
 }
 
 /// Mixed	   ::=   	'(' S? '#PCDATA' (S? '|' S? Name)* S? ')*'
@@ -189,18 +172,7 @@ fn any(i: &str) -> nom::IResult<&str, ElementCategory> {
 }
 
 /// <!ELEMENT 元素名称 类别>
-/// ```
-/// use nom::Finish;
-/// use dtd::parser::element::{element, Element};
-/// use dtd::parser::Name;
-/// let el = element("<!ELEMENT b (#PCDATA)>");
-/// assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
-/// let el = element("<!ELEMENT p (#PCDATA|a|ul|b|i|em)*>").finish();
-/// assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
-/// let el = element("<!ELEMENT p (#PCDATA | %font; | %phrase; | %special; | %form;)* >").finish();
-/// assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
-/// ```
-pub fn element(i: &str) -> nom::IResult<&str, Element> {
+pub(super) fn element_decl(i: &str) -> nom::IResult<&str, ElementDecl> {
     map(
         tuple((
             tag("<!ELEMENT"),
@@ -211,7 +183,7 @@ pub fn element(i: &str) -> nom::IResult<&str, Element> {
             space0,
             tag(">"),
         )),
-        |(_, _, n, _, c, _, _)| Element {
+        |(_, _, n, _, c, _, _)| ElementDecl {
             name: n,
             category: c,
         },
@@ -262,3 +234,20 @@ pub fn element(i: &str) -> nom::IResult<&str, Element> {
 // 例子：
 // <!ELEMENT note (#PCDATA|to|from|header|message)*>
 // 上面的例子声明了："note" 元素可包含出现零次或多次的 PCDATA、"to"、"from"、"header" 或者 "message"。
+
+#[cfg(test)]
+mod tests {
+    use super::super::Name;
+    use super::{element_decl, ElementDecl};
+    use nom::Finish;
+
+    fn test_element_decl() {
+        let el = element_decl("<!ELEMENT b (#PCDATA)>").finish();
+        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
+        let el = element_decl("<!ELEMENT p (#PCDATA|a|ul|b|i|em)*>").finish();
+        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
+        let el = element_decl("<!ELEMENT p (#PCDATA | %font; | %phrase; | %special; | %form;)* >")
+            .finish();
+        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
+    }
+}
