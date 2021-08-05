@@ -112,7 +112,7 @@ fn pedecl(i: &str) -> Result<PEDecl> {
 #[derive(Debug)]
 pub enum EntityDef<'i> {
     EntityValue(EntityValue<'i>),
-    ExternalID_NDataDecl(ExternalID<'i>, Option<NDataDecl<'i>>),
+    ExternalIDWithNDataDecl(ExternalID<'i>, Option<NDataDecl<'i>>),
 }
 
 /// EntityDef	   ::=   	EntityValue | (ExternalID NDataDecl?)
@@ -120,7 +120,7 @@ fn entity_def(i: &str) -> Result<EntityDef> {
     alt((
         map(entity_value, EntityDef::EntityValue),
         map(tuple((external_id, opt(ndata_decl))), |(eid, ndata)| {
-            EntityDef::ExternalID_NDataDecl(eid, ndata)
+            EntityDef::ExternalIDWithNDataDecl(eid, ndata)
         }),
     ))(i)
 }
@@ -142,7 +142,7 @@ fn pedef(i: &str) -> Result<PEDef> {
 #[derive(Debug)]
 pub enum ExternalID<'i> {
     SystemLiteral(SystemLiteral<'i>),
-    PubidLiteral_SystemLiteral(PubidLiteral<'i>, SystemLiteral<'i>),
+    PubidLiteralWithSystemLiteral(PubidLiteral<'i>, SystemLiteral<'i>),
 }
 /// ExternalID	   ::=   	'SYSTEM' S SystemLiteral
 ///                         | 'PUBLIC' S PubidLiteral S SystemLiteral
@@ -157,7 +157,7 @@ fn external_id(i: &str) -> Result<ExternalID> {
                 pair(tag("PUBLIC"), multispace1),
                 separated_pair(pubid_literal, multispace1, system_literal),
             ),
-            |(pubid, system)| ExternalID::PubidLiteral_SystemLiteral(pubid, system),
+            |(pubid, system)| ExternalID::PubidLiteralWithSystemLiteral(pubid, system),
         ),
     ))(i)
 }

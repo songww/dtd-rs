@@ -11,6 +11,22 @@ use super::{
     name, name_or_reference, nmtoken, reference, Name, NameOrReference, Nmtoken, Reference, Result,
 };
 
+fn dbg_dmp<'i, F, O, E: std::fmt::Debug>(
+    mut f: F,
+    context: &'static str,
+) -> impl FnMut(&'i str) -> nom::IResult<&'i str, O, E>
+where
+    F: FnMut(&'i str) -> nom::IResult<&'i str, O, E>,
+{
+    move |i: &'i str| match f(i) {
+        Err(e) => {
+            println!("{}: Error({:?}) at:\n{}", context, e, i);
+            Err(e)
+        }
+        a => a,
+    }
+}
+
 /// 属性可提供有关元素的额外信息。
 ///
 /// 属性总是被置于某元素的开始标签中。属性总是以名称/值的形式成对出现的。
@@ -23,14 +39,17 @@ pub struct AttlistDecl<'i> {
 /// AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
 pub(super) fn attlist_decl(i: &str) -> nom::IResult<&str, AttlistDecl> {
     map(
-        tuple((
-            tag("<!ATTLIST"),
-            multispace1,
-            name,
-            many0(att_def),
-            multispace0,
-            tag(">"),
-        )),
+        dbg_dmp(
+            tuple((
+                dbg_dmp(tag("<!ATTLIST"), "attlist start-tag"),
+                dbg_dmp(multispace1, "attlist many spaces after tag"),
+                dbg_dmp(name, "attlist name"),
+                dbg_dmp(many0(attdef), "attlist attdef"),
+                dbg_dmp(multispace0, "attlist many spaces before close-tag"),
+                dbg_dmp(tag(">"), "attlist close-tag"),
+            )),
+            "attlist",
+        ),
         |(_, _, name, att_defs, _, _)| AttlistDecl { name, att_defs },
     )(i)
 }
@@ -38,25 +57,30 @@ pub(super) fn attlist_decl(i: &str) -> nom::IResult<&str, AttlistDecl> {
 #[derive(Debug)]
 pub struct AttDef<'i> {
     name: NameOrReference<'i>,
-    att_type: AttType<'i>,
+    atttype: AttType<'i>,
     default_decl: DefaultDecl<'i>,
 }
 
 /// AttDef ::= S Name S AttType S DefaultDecl
-fn att_def(i: &str) -> nom::IResult<&str, AttDef> {
+fn attdef(i: &str) -> nom::IResult<&str, AttDef> {
     map(
         tuple((
             multispace1,
-            name_or_reference,
+            dbg_dmp(name_or_reference, "attlist attdef name_or_reference"),
             multispace1,
-            att_type,
+            dbg_dmp(atttype, "attlist attdef atttype"),
             multispace1,
-            default_decl,
+            dbg_dmp(default_decl, "attlist attdef default_decl"),
         )),
-        |(_, name, _, att_type, _, default_decl)| AttDef {
-            name,
-            att_type,
-            default_decl,
+        |(_, name, _, atttype, _, default_decl)| {
+            dbg!(&name);
+            dbg!(&atttype);
+            dbg!(&default_decl);
+            AttDef {
+                name,
+                atttype,
+                default_decl,
+            }
         },
     )(i)
 }
@@ -118,12 +142,15 @@ fn tokenized_type(i: &str) -> Result<AttType> {
     )(i)
 }
 
-///      AttType            ::=     StringType | TokenizedType | EnumeratedType
-fn att_type(i: &str) -> Result<AttType> {
+/// AttType            ::=     StringType | TokenizedType | EnumeratedType
+fn atttype(i: &str) -> Result<AttType> {
     alt((
-        string_type,
-        tokenized_type,
-        map(enumerated_type, AttType::EnumeratedType),
+        dbg_dmp(string_type, "atttype string_type"),
+        dbg_dmp(tokenized_type, "atttype tokenized_type"),
+        map(
+            dbg_dmp(enumerated_type, "atttype enumerated_type"),
+            AttType::EnumeratedType,
+        ),
     ))(i)
 }
 
@@ -189,6 +216,7 @@ pub enum DefaultDecl<'i> {
     Required,
     Implied,
     Fixed(AttValue<'i>),
+    Default(AttValue<'i>),
 }
 /// DefaultDecl ::= '#REQUIRED' | '#IMPLIED'
 ///                 | (('#FIXED' S)? AttValue) [VC: Required Attribute]
@@ -210,7 +238,13 @@ fn default_decl(i: &str) -> Result<DefaultDecl> {
         map(tag("#IMPLIED"), |_| DefaultDecl::Implied),
         map(
             pair(opt(pair(tag("#FIXED"), multispace1)), att_value),
-            |(_, att_value)| DefaultDecl::Fixed(att_value),
+            |(isfixed, att_value)| {
+                if isfixed.is_some() {
+                    DefaultDecl::Fixed(att_value)
+                } else {
+                    DefaultDecl::Default(att_value)
+                }
+            },
         ),
     ))(i)
 }
