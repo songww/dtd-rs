@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
-    character::complete::{char, space0, space1},
+    character::complete::{char, multispace1, space0, space1},
     combinator::{map, opt},
     multi::{many0, separated_list1},
     sequence::{delimited, pair, tuple},
@@ -43,7 +43,14 @@ pub struct AttDef<'i> {
 /// AttDef ::= S Name S AttType S DefaultDecl
 fn att_def(i: &str) -> nom::IResult<&str, AttDef> {
     map(
-        tuple((space1, name, space1, att_type, space1, default_decl)),
+        tuple((
+            multispace1,
+            name,
+            multispace1,
+            att_type,
+            multispace1,
+            default_decl,
+        )),
         |(_, name, _, att_type, _, default_decl)| AttDef {
             name,
             att_type,
@@ -246,6 +253,8 @@ fn att_value(i: &str) -> Result<AttValue> {
 
 #[cfg(test)]
 mod tests {
+    use nom::Finish;
+
     use super::attlist_decl;
 
     // <!ATTLIST termdef
@@ -257,7 +266,8 @@ mod tests {
             r#"<!ATTLIST termdef
              id      ID      #REQUIRED
              name    CDATA   #IMPLIED>"#,
-        );
+        )
+        .finish();
         assert!(
             attlist.is_ok(),
             "{}",
@@ -271,7 +281,8 @@ mod tests {
         let attlist = attlist_decl(
             r#"<!ATTLIST list
              type    (bullets|ordered|glossary)  "ordered">"#,
-        );
+        )
+        .finish();
         assert!(
             attlist.is_ok(),
             "{}",
@@ -285,7 +296,8 @@ mod tests {
         let attlist = attlist_decl(
             r#"<!ATTLIST form
              method  CDATA   #FIXED "POST">"#,
-        );
+        )
+        .finish();
         assert!(
             attlist.is_ok(),
             "{}",
