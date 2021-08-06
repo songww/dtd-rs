@@ -1,14 +1,35 @@
+use either::Either;
+use indexmap::IndexMap;
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, tag, take_till, take_until, take_while, take_while_m_n};
-use nom::character::complete::{char, multispace0, space1};
-//use nom::Finish;
-use nom::combinator::{map, recognize, value};
-use nom::multi::{many0, separated_list1};
+use nom::character::complete::{anychar, char, multispace0, space1};
+use nom::combinator::{iterator, map, recognize, value};
+use nom::multi::{many0, many1, separated_list1};
 use nom::sequence::{delimited, pair, tuple};
+use nom::Finish;
 
 mod attlist;
 mod element;
 mod entity;
+
+type Result<'i, T> = nom::IResult<&'i str, T>;
+
+/// like nom::dbg_dmp but eat &str.
+fn dbg_dmp<'i, F, O, E: std::fmt::Debug>(
+    mut f: F,
+    context: &'static str,
+) -> impl FnMut(&'i str) -> nom::IResult<&'i str, O, E>
+where
+    F: FnMut(&'i str) -> nom::IResult<&'i str, O, E>,
+{
+    move |i: &'i str| match f(i) {
+        Err(e) => {
+            println!("{}: Error({:?}) at:\n{}", context, e, i);
+            Err(e)
+        }
+        a => a,
+    }
+}
 
 /// 被解析的字符数据（parsed character data）
 /// 这PCDATA 是会被解析器解析的文本。些文本将被解析器检查实体以及标记。
@@ -16,16 +37,30 @@ mod entity;
 /// 文本中的标签会被当作标记来处理，而实体会被展开。
 ///
 /// 不过，被解析的字符数据不应当包含任何 &、< 或者 > 字符；需要使用 &amp;、&lt; 以及 &gt; 实体来分别替换它们。
-#[derive(Debug)]
-pub struct PCDATA<'i>(&'i str);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct PCDATA(String);
 
 /// 字符数据（character data）。
 ///
 /// CDATA 是不会被解析器解析的文本。在这些文本中的标签不会被当作标记来对待，其中的实体也不会被展开。
-#[derive(Debug)]
-pub struct CDATA<'i>(&'i str);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct CDATA(String);
 
-#[derive(Debug)]
+/// How namy accurrences of child.
+#[derive(Debug, Display)]
+pub enum Repeatable<T> {
+    /// Occur once or more times.
+    #[display(fmt = "{}+", "_0")]
+    AtLeastOnce(T),
+    /// Optional
+    #[display(fmt = "{}?", "_0")]
+    AtMostOnce(T),
+    /// Not occurring or occurring more than once
+    #[display(fmt = "{}*", "_0")]
+    ZeroOrManyTimes(T),
+}
+
+#[derive(Debug, Display, AsMut, AsRef)]
 pub struct CommentDecl;
 
 /// '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
@@ -45,8 +80,14 @@ fn comment_decl(i: &str) -> nom::IResult<&str, CommentDecl> {
 ///     NameChar       ::=       NameStartChar | "-" | "." | [0-9] | #xB7 | [#x0300-#x036F] | [#x203F-#x2040]
 ///     Name       ::=       NameStartChar (NameChar)*
 /// ```
-#[derive(Debug)]
-pub struct Name<'i>(&'i str);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct Name(String);
+
+impl Name {
+    fn to_string(&self) -> String {
+        self.0.to_string()
+    }
+}
 
 fn is_name_start(c: char) -> bool {
     c == ':'
@@ -115,41 +156,43 @@ fn is_name_char(c: char) -> bool {
         || is_name_start(c)
 }
 
-fn name<'i>(i: &'i str) -> nom::IResult<&'i str, Name<'i>> {
+fn name(i: &str) -> Result<Name> {
     map(
         recognize(pair(
             take_while_m_n(1, 1, is_name_start),
             take_while(is_name_char),
         )),
-        |n| Name(n),
+        |n: &str| Name(n.to_string()),
     )(i)
 }
 
 ///     Nmtoken ::= (NameChar)+
-#[derive(Debug)]
-pub struct Nmtoken<'i>(&'i str);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct Nmtoken(String);
 
 ///     Nmtoken ::= (NameChar)+
 fn nmtoken(i: &str) -> nom::IResult<&str, Nmtoken> {
-    map(recognize(take_while(is_name_char)), Nmtoken)(i)
+    map(recognize(take_while(is_name_char)), |s: &str| {
+        Nmtoken(s.to_string())
+    })(i)
 }
 
 ///      Nmtokens ::= Nmtoken (#x20 Nmtoken)*
-#[derive(Debug)]
-pub struct Nmtokens<'i>(Vec<Nmtoken<'i>>);
+#[derive(Debug, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct Nmtokens(Vec<Nmtoken>);
 
 ///      Nmtokens ::= Nmtoken (#x20 Nmtoken)*
 fn nmtokens(i: &str) -> Result<Vec<Nmtoken>> {
     separated_list1(space1, nmtoken)(i)
 }
 
-#[derive(Debug)]
-pub struct MixedPCDATA<'i>(Vec<NameOrReference<'i>>);
+#[derive(Debug, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct MixedPCDATA(Vec<NameOrReference>);
 
-#[derive(Debug)]
-pub enum NameOrReference<'i> {
-    Name(Name<'i>),
-    Reference(PEReference<'i>),
+#[derive(Debug, TryInto)]
+pub enum NameOrReference {
+    Name(Name),
+    Reference(PEReference),
 }
 
 fn map_name(i: &str) -> nom::IResult<&str, NameOrReference> {
@@ -160,37 +203,46 @@ fn map_pereference(i: &str) -> nom::IResult<&str, NameOrReference> {
     map(pereference, |n| NameOrReference::Reference(n))(i)
 }
 
+/*
 fn name_or_reference(i: &str) -> Result<NameOrReference> {
     alt((map_name, map_pereference))(i)
 }
+*/
 
-type Result<'i, T> = nom::IResult<&'i str, T>;
-
-#[derive(Debug)]
-pub struct CharRef<'i>(&'i str);
+#[derive(Debug, Display, TryInto)]
+pub enum CharRef {
+    #[display(fmt = "{}", "_0")]
+    Decimal(isize),
+    #[display(fmt = "{:x}", "_0")]
+    Hexadecimal(isize),
+}
 
 /// CharRef ::= '&#' [0-9]+ ';'
 ///             | '&#x' [0-9a-fA-F]+ ';'    [WFC: Legal Character]
 fn char_ref(i: &str) -> Result<CharRef> {
-    map(
-        alt((
-            delimited(tag("&#"), is_a("0123456789"), tag(";")),
+    alt((
+        map(delimited(tag("&#"), is_a("0123456789"), tag(";")), |v| {
+            CharRef::Decimal(isize::from_str_radix(v, 10).unwrap())
+        }),
+        map(
             delimited(tag("&#x"), is_a("0123456789abcdefABCDEF"), tag(";")),
-        )),
-        CharRef,
-    )(i)
+            |v| CharRef::Hexadecimal(isize::from_str_radix(v, 16).unwrap()),
+        ),
+    ))(i)
 }
 
-#[derive(Debug)]
-pub struct EntityRef<'i>(Name<'i>);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct EntityRef(Name);
 
-#[derive(Debug)]
-pub struct PEReference<'i>(Name<'i>);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct PEReference(Name);
 
-#[derive(Debug)]
-pub enum Reference<'i> {
-    CharRef(CharRef<'i>),
-    EntityRef(EntityRef<'i>),
+#[derive(Debug, Display, TryInto)]
+pub enum Reference {
+    #[display(fmt = "{}", "_0")]
+    CharRef(CharRef),
+    #[display(fmt = "&{};", "_0")]
+    EntityRef(EntityRef),
 }
 
 /// Reference   ::= EntityRef | CharRef
@@ -204,7 +256,7 @@ fn reference(i: &str) -> Result<Reference> {
 /// PEReference ::= '%' Name ';'         [VC: Entity Declared]
 ///                                      [WFC: No Recursion]
 ///                                      [WFC: In DTD]
-fn pereference(i: &str) -> Result<PEReference<'_>> {
+fn pereference(i: &str) -> Result<PEReference> {
     map(delimited(tag("%"), name, tag(";")), |n| PEReference(n))(i)
 }
 
@@ -212,12 +264,12 @@ fn pereference(i: &str) -> Result<PEReference<'_>> {
 ///                                      [VC: Entity Declared]
 ///                                      [WFC: Parsed Entity]
 ///                                      [WFC: No Recursion]
-fn entity_ref(i: &str) -> Result<EntityRef<'_>> {
+fn entity_ref(i: &str) -> Result<EntityRef> {
     map(tuple((tag("&"), name, tag(";"))), |(_, n, _)| EntityRef(n))(i)
 }
 
-#[derive(Debug)]
-pub struct SystemLiteral<'i>(&'i str);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct SystemLiteral(String);
 
 ///	SystemLiteral	   ::=   	('"' [^"]* '"') | ("'" [^']* "'")
 fn system_literal(i: &str) -> Result<SystemLiteral> {
@@ -226,12 +278,12 @@ fn system_literal(i: &str) -> Result<SystemLiteral> {
             delimited(char('"'), take_until("\""), char('"')),
             delimited(char('\''), take_until("'"), char('\'')),
         )),
-        SystemLiteral,
+        |sl: &str| SystemLiteral(sl.to_string()),
     )(i)
 }
 
-#[derive(Debug)]
-pub struct PubidLiteral<'i>(&'i str);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct PubidLiteral(String);
 
 /// PubidLiteral	   ::=   	'"' PubidChar* '"' | "'" (PubidChar - "'")* "'"
 fn pubid_literal(i: &str) -> Result<PubidLiteral> {
@@ -240,7 +292,7 @@ fn pubid_literal(i: &str) -> Result<PubidLiteral> {
             delimited(char('"'), take_till(is_pubid_char), char('"')),
             delimited(char('\''), take_till(is_pubid_char), char('\'')),
         )),
-        |s| PubidLiteral(s),
+        |s: &str| PubidLiteral(s.to_string()),
     )(i)
 }
 
@@ -253,16 +305,117 @@ fn is_pubid_char(c: char) -> bool {
         || "-'()+,./:=?;!*#@$_%".contains(c))
 }
 
-#[derive(Debug)]
-pub enum ElementType<'i> {
-    Element(element::ElementDecl<'i>),
-    Entity(entity::EntityDecl<'i>),
-    Attlist(attlist::AttlistDecl<'i>),
+#[derive(Debug, TryInto)]
+pub enum ElementType {
+    Element(element::ElementDecl),
+    Entity(entity::EntityDecl),
+    Attlist(attlist::AttlistDecl),
     Comment(CommentDecl),
 }
 
-pub fn parse(i: &str) -> Result<Vec<ElementType>> {
-    many0(alt((
+fn entity_definetions(i: &str) -> IndexMap<String, entity::PEDecl> {
+    iterator(i, alt((map(entity::pedecl, Some), map(anychar, |_| None))))
+        .filter_map(|entity| entity.map(|entity| (entity.name().to_string(), entity)))
+        .collect()
+}
+
+pub fn resolve_entity_definitions(i: &str) -> IndexMap<String, String> {
+    let definitions = entity_definetions(i);
+    let iter = definitions.into_iter();
+    let mut definitions: IndexMap<String, String> = IndexMap::new();
+    for (name, definition) in iter {
+        match definition.pedef {
+            entity::PEDef::EntityValue(values) => {
+                let mut value = Vec::with_capacity(values.len());
+                for value_or_reference in values.into_iter() {
+                    println!("entity: {} -> {}", &name, &value_or_reference);
+                    let v = match value_or_reference {
+                        entity::ValueOrReference::Value(value) => value.into(),
+                        entity::ValueOrReference::Reference(reference) => reference.to_string(),
+                        entity::ValueOrReference::PEReference(pereference) => {
+                            match definitions.get(&pereference.to_string()) {
+                                Some(def) => def.to_owned(),
+                                None => {
+                                    eprintln!(
+                                        "WARNING: PEReference(`{}`) is not defined yet.",
+                                        pereference
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                    };
+                    value.push(v);
+                }
+                definitions.insert(name.to_owned(), value.join(" "));
+            }
+            entity::PEDef::ExternalID(external_id) => {
+                match external_id {
+                    entity::ExternalID::SystemLiteral(system_literal) => {
+                        eprintln!(
+                            "ERROR: ExternalID SystemLiteral(`{}`) not implemented yet, this will cause problom.",
+                            system_literal
+                        );
+                        continue;
+                    }
+                    entity::ExternalID::PubidLiteralWithSystemLiteral(
+                        pubid_literal,
+                        system_literal,
+                    ) => {
+                        if system_literal.starts_with("http") || system_literal.starts_with("ftp") {
+                            eprintln!(
+                                "ERROR: ExternalID PubidLiteral SystemLiteral(`{}`) from network not implemented yet, this will cause problom.",
+                                system_literal
+                            );
+                        }
+                        match std::fs::read_to_string(system_literal.as_ref()) {
+                            Err(err) => {
+                                eprintln!(
+                                    "ERROR: Failed to include ExternalID PubidLiteral SystemLiteral(`{}`), {}",
+                                    system_literal,
+                                    &err
+                                );
+                            }
+                            Ok(included) => definitions
+                                .extend(resolve_entity_definitions(&included).into_iter()),
+                        }
+                        println!(
+                            "external_id: {} -> `{}` `{}`",
+                            &name, pubid_literal, system_literal
+                        );
+                        // definitions.insert(name, def);
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+    dbg!(&definitions);
+    definitions
+}
+
+pub fn resolve_references(i: &str, definitions: &IndexMap<String, String>) -> String {
+    // let mut resolved = String::with_capacity(i.len());
+    iterator(
+        i,
+        alt((
+            map(delimited(tag("%"), name, tag(";")), Either::Left),
+            map(recognize(many1(anychar)), Either::Right),
+        )),
+    )
+    .map(|either| match either {
+        Either::Left(name) => definitions.get(name.as_ref()).unwrap().as_str(),
+        Either::Right(chars) => chars,
+    })
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+pub fn parse(i: &str) -> std::result::Result<Vec<ElementType>, String> {
+    let definitions = resolve_entity_definitions(i);
+    dbg!(&definitions);
+    let resolved = resolve_references(i, &definitions);
+    let result = many0(alt((
         map(
             delimited(multispace0, attlist::attlist_decl, multispace0),
             ElementType::Attlist,
@@ -279,8 +432,11 @@ pub fn parse(i: &str) -> Result<Vec<ElementType>> {
             delimited(multispace0, comment_decl, multispace0),
             ElementType::Comment,
         ),
-    )))(i)
-    // .finish()
+    )))(resolved.as_str())
+    .finish()
+    .map(|(_, elements)| elements)
+    .map_err(|err| err.to_string());
+    result
 }
 
 #[cfg(test)]

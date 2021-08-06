@@ -18,18 +18,25 @@ use super::{
 ///
 /// 当文档被 XML 解析器解析时，实体就会被展开。
 
-#[derive(Debug)]
-pub struct EntityValue<'i>(Vec<ValueOrReference<'i>>);
+#[derive(Debug, Display, Into, IntoIterator, AsRef, AsMut, Deref, DerefMut)]
+#[display(
+    fmt = "{}",
+    "_0.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(\" \")"
+)]
+pub struct EntityValue(Vec<ValueOrReference>);
 
-#[derive(Debug)]
-pub enum ValueOrReference<'i> {
-    Value(Value<'i>),
-    Reference(Reference<'i>),
-    PEReference(PEReference<'i>),
+#[derive(Debug, Display, TryInto)]
+pub enum ValueOrReference {
+    #[display(fmt = "{}", "_0")]
+    Value(Value),
+    #[display(fmt = "{}", "_0")]
+    Reference(Reference),
+    #[display(fmt = "%{};", "_0")]
+    PEReference(PEReference),
 }
 
-#[derive(Debug)]
-pub struct Value<'i>(&'i str);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct Value(String);
 
 /// EntityValue ::= '"' ([^%&"] | PEReference | Reference)* '"'
 ///                 |  "'" ([^%&'] | PEReference | Reference)* "'"
@@ -39,7 +46,9 @@ fn entity_value(i: &str) -> Result<EntityValue> {
             delimited(
                 char('"'),
                 many0(alt((
-                    map(is_not("%&\""), |v| ValueOrReference::Value(Value(v))),
+                    map(is_not("%&\""), |v: &str| {
+                        ValueOrReference::Value(Value(v.to_string()))
+                    }),
                     map(reference, |r| ValueOrReference::Reference(r)),
                     map(pereference, |peref| ValueOrReference::PEReference(peref)),
                 ))),
@@ -48,21 +57,23 @@ fn entity_value(i: &str) -> Result<EntityValue> {
             delimited(
                 char('\''),
                 many0(alt((
-                    map(is_not("%&'"), |v| ValueOrReference::Value(Value(v))),
+                    map(is_not("%&'"), |v: &str| {
+                        ValueOrReference::Value(Value(v.to_string()))
+                    }),
                     map(reference, |r| ValueOrReference::Reference(r)),
                     map(pereference, |peref| ValueOrReference::PEReference(peref)),
                 ))),
                 char('\''),
             ),
         )),
-        EntityValue,
+        |v| EntityValue(v),
     )(i)
 }
 
-#[derive(Debug)]
-pub enum EntityDecl<'i> {
-    GEDecl(GEDecl<'i>),
-    PEDecl(PEDecl<'i>),
+#[derive(Debug, TryInto)]
+pub enum EntityDecl {
+    GEDecl(GEDecl),
+    PEDecl(PEDecl),
 }
 // EntityDecl ::= GEDecl | PEDecl
 pub(super) fn entity_decl(i: &str) -> Result<EntityDecl> {
@@ -72,10 +83,11 @@ pub(super) fn entity_decl(i: &str) -> Result<EntityDecl> {
     ))(i)
 }
 
-#[derive(Debug)]
-pub struct GEDecl<'i> {
-    name: Name<'i>,
-    entity_def: EntityDef<'i>,
+#[derive(Debug, Display, AsMut, AsRef, Into)]
+#[display(fmt = "{} {}", name, entity_def)]
+pub struct GEDecl {
+    name: Name,
+    entity_def: EntityDef,
 }
 /// GEDecl ::= '<!ENTITY' S Name S EntityDef S? '>'
 fn gedecl(i: &str) -> Result<GEDecl> {
@@ -88,14 +100,25 @@ fn gedecl(i: &str) -> Result<GEDecl> {
     )(i)
 }
 
-#[derive(Debug)]
-pub struct PEDecl<'i> {
-    name: Name<'i>,
-    pedef: PEDef<'i>,
+#[derive(Debug, Display, AsMut, AsRef, Into)]
+#[display(fmt = "{} {}", name, pedef)]
+pub struct PEDecl {
+    pub(super) name: Name,
+    pub(super) pedef: PEDef,
+}
+
+impl PEDecl {
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
+
+    pub fn pedef(&self) -> &PEDef {
+        &self.pedef
+    }
 }
 
 /// PEDecl	   ::=   	'<!ENTITY' S '%' S Name S PEDef S? '>'
-fn pedecl(i: &str) -> Result<PEDecl> {
+pub(super) fn pedecl(i: &str) -> Result<PEDecl> {
     map(
         tuple((
             delimited(
@@ -109,10 +132,12 @@ fn pedecl(i: &str) -> Result<PEDecl> {
     )(i)
 }
 
-#[derive(Debug)]
-pub enum EntityDef<'i> {
-    EntityValue(EntityValue<'i>),
-    ExternalIDWithNDataDecl(ExternalID<'i>, Option<NDataDecl<'i>>),
+#[derive(Debug, Display, TryInto)]
+pub enum EntityDef {
+    #[display(fmt = "{}", "_0")]
+    EntityValue(EntityValue),
+    #[display(fmt = "{} {:?}", "_0", "_1")]
+    ExternalIDWithNDataDecl(ExternalID, Option<NDataDecl>),
 }
 
 /// EntityDef	   ::=   	EntityValue | (ExternalID NDataDecl?)
@@ -125,10 +150,12 @@ fn entity_def(i: &str) -> Result<EntityDef> {
     ))(i)
 }
 
-#[derive(Debug)]
-pub enum PEDef<'i> {
-    EntityValue(EntityValue<'i>),
-    ExternalID(ExternalID<'i>),
+#[derive(Debug, Display, TryInto)]
+pub enum PEDef {
+    #[display(fmt = "{}", "_0")]
+    EntityValue(EntityValue),
+    #[display(fmt = "{}", "_0")]
+    ExternalID(ExternalID),
 }
 
 /// PEDef	   ::=   	EntityValue | ExternalID
@@ -139,10 +166,12 @@ fn pedef(i: &str) -> Result<PEDef> {
     ))(i)
 }
 
-#[derive(Debug)]
-pub enum ExternalID<'i> {
-    SystemLiteral(SystemLiteral<'i>),
-    PubidLiteralWithSystemLiteral(PubidLiteral<'i>, SystemLiteral<'i>),
+#[derive(Debug, Display, TryInto)]
+pub enum ExternalID {
+    #[display(fmt = "SYSTEM {}", "_0")]
+    SystemLiteral(SystemLiteral),
+    #[display(fmt = "PUBLIC {} {}", "_0", "_1")]
+    PubidLiteralWithSystemLiteral(PubidLiteral, SystemLiteral),
 }
 /// ExternalID	   ::=   	'SYSTEM' S SystemLiteral
 ///                         | 'PUBLIC' S PubidLiteral S SystemLiteral
@@ -162,8 +191,8 @@ fn external_id(i: &str) -> Result<ExternalID> {
     ))(i)
 }
 
-#[derive(Debug)]
-pub struct NDataDecl<'i>(Name<'i>);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+pub struct NDataDecl(Name);
 
 /// NDataDecl	   ::=   	S 'NDATA' S Name 	[VC: Notation Declared]
 fn ndata_decl(i: &str) -> Result<NDataDecl> {
@@ -229,5 +258,22 @@ mod tests {
             "{}",
             result.as_ref().unwrap_err().to_string()
         );
+        dbg!(result.unwrap());
+    }
+
+    #[test]
+    fn test_external_entity_parse_2() {
+        let result = entity_decl(
+            r#"<!ENTITY % calstblx PUBLIC
+    "-//OASIS//DTD XML Exchange Table Model 19990315//EN"
+    "soextblx.dtd">"#,
+        )
+        .finish();
+        assert!(
+            result.is_ok(),
+            "{}",
+            result.as_ref().unwrap_err().to_string()
+        );
+        dbg!(result.unwrap());
     }
 }
