@@ -7,7 +7,7 @@ use nom::{
     sequence::{terminated, tuple},
 };
 
-use super::{map_name, map_pereference, name, MixedPCDATA, Name};
+use super::{map_name, map_pereference, name, MixedPCDATA, Name, Repeatable};
 
 /// 元素是 XML 以及 HTML 文档的主要构建模块。
 ///
@@ -15,29 +15,19 @@ use super::{map_name, map_pereference, name, MixedPCDATA, Name};
 /// XML 元素的例子是 "note" 和 "message" 。
 /// 元素可包含文本、其他元素或者是空的。空的 HTML 元素的例子是 "hr"、"br" 以及 "img"。
 #[derive(Debug)]
-pub struct ElementDecl<'i> {
-    name: Name<'i>,
-    category: ElementCategory<'i>,
+pub struct ElementDecl {
+    name: Name,
+    category: ElementCategory,
 }
 
 #[derive(Debug)]
-pub enum ElementCategory<'i> {
+pub enum ElementCategory {
     Empty,
     PCDATA,
     CDATA,
     Any,
-    Mixed(MixedPCDATA<'i>),
-    Children(Repeatable<Child<'i>>),
-}
-
-#[derive(Debug)]
-pub struct SubElements<'i>(Vec<Repeatable<ElementDecl<'i>>>);
-
-#[derive(Debug)]
-pub enum Repeatable<T> {
-    AtLeastOnce(T),
-    AtMostOnce(T),
-    ZeroOrManyTimes(T),
+    Mixed(MixedPCDATA),
+    Children(Repeatable<Child>),
 }
 
 /// Mixed	   ::=   	'(' S? '#PCDATA' (S? '|' S? Name)* S? ')*'
@@ -73,10 +63,10 @@ pub struct Seq<T>(Vec<T>);
 pub struct Choices<T>(Vec<T>);
 
 #[derive(Debug)]
-pub enum Child<'i> {
-    Name(Name<'i>),
-    Seq(Seq<Repeatable<Child<'i>>>),
-    Choices(Choices<Repeatable<Child<'i>>>),
+pub enum Child {
+    Name(Name),
+    Seq(Seq<Repeatable<Child>>),
+    Choices(Choices<Repeatable<Child>>),
 }
 
 ///   	children	   ::=   	(choice | seq) ('?' | '*' | '+')?
@@ -237,10 +227,11 @@ pub(super) fn element_decl(i: &str) -> nom::IResult<&str, ElementDecl> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::Name;
-    use super::{element_decl, ElementDecl};
+
+    use super::element_decl;
     use nom::Finish;
 
+    #[test]
     fn test_element_decl() {
         let el = element_decl("<!ELEMENT b (#PCDATA)>").finish();
         assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());

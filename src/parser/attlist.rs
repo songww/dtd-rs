@@ -7,33 +7,15 @@ use nom::{
     sequence::{delimited, pair, tuple},
 };
 
-use super::{
-    name, name_or_reference, nmtoken, reference, Name, NameOrReference, Nmtoken, Reference, Result,
-};
-
-fn dbg_dmp<'i, F, O, E: std::fmt::Debug>(
-    mut f: F,
-    context: &'static str,
-) -> impl FnMut(&'i str) -> nom::IResult<&'i str, O, E>
-where
-    F: FnMut(&'i str) -> nom::IResult<&'i str, O, E>,
-{
-    move |i: &'i str| match f(i) {
-        Err(e) => {
-            println!("{}: Error({:?}) at:\n{}", context, e, i);
-            Err(e)
-        }
-        a => a,
-    }
-}
+use super::{dbg_dmp, name, nmtoken, reference, Name, Nmtoken, Reference, Repeatable, Result};
 
 /// 属性可提供有关元素的额外信息。
 ///
 /// 属性总是被置于某元素的开始标签中。属性总是以名称/值的形式成对出现的。
 #[derive(Debug)]
-pub struct AttlistDecl<'i> {
-    name: Name<'i>,
-    att_defs: Vec<AttDef<'i>>,
+pub struct AttlistDecl {
+    name: Name,
+    att_defs: Repeatable<Vec<AttDef>>,
 }
 
 /// AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
@@ -50,15 +32,18 @@ pub(super) fn attlist_decl(i: &str) -> nom::IResult<&str, AttlistDecl> {
             )),
             "attlist",
         ),
-        |(_, _, name, att_defs, _, _)| AttlistDecl { name, att_defs },
+        |(_, _, name, att_defs, _, _)| AttlistDecl {
+            name,
+            att_defs: Repeatable::ZeroOrManyTimes(att_defs),
+        },
     )(i)
 }
 
 #[derive(Debug)]
-pub struct AttDef<'i> {
-    name: NameOrReference<'i>,
-    atttype: AttType<'i>,
-    default_decl: DefaultDecl<'i>,
+pub struct AttDef {
+    name: Name,
+    atttype: AttType,
+    default_decl: DefaultDecl,
 }
 
 /// AttDef ::= S Name S AttType S DefaultDecl
@@ -66,7 +51,7 @@ fn attdef(i: &str) -> nom::IResult<&str, AttDef> {
     map(
         tuple((
             multispace1,
-            dbg_dmp(name_or_reference, "attlist attdef name_or_reference"),
+            dbg_dmp(name, "attlist attdef name_or_reference"),
             multispace1,
             dbg_dmp(atttype, "attlist attdef atttype"),
             multispace1,
@@ -86,11 +71,11 @@ fn attdef(i: &str) -> nom::IResult<&str, AttDef> {
 }
 
 #[derive(Debug)]
-pub enum AttType<'i> {
+pub enum AttType {
     /// StringType         ::=     'CDATA'
     StringType,
     TokenizedType(TokenizedType),
-    EnumeratedType(EnumeratedType<'i>),
+    EnumeratedType(EnumeratedType),
 }
 
 #[derive(Debug)]
@@ -156,9 +141,9 @@ fn atttype(i: &str) -> Result<AttType> {
 
 /// EnumeratedType ::= NotationType | Enumeration
 #[derive(Debug)]
-pub enum EnumeratedType<'i> {
-    NotationType(NotationType<'i>),
-    Enumeration(Enumeration<'i>),
+pub enum EnumeratedType {
+    NotationType(NotationType),
+    Enumeration(Enumeration),
 }
 
 /// EnumeratedType ::= NotationType | Enumeration
@@ -174,7 +159,7 @@ fn enumerated_type(i: &str) -> Result<EnumeratedType> {
 ///                                                                       [VC: No Notation on Empty Element]
 ///                                                                       [VC: No Duplicate Tokens]
 #[derive(Debug)]
-pub struct NotationType<'i>(Vec<Name<'i>>);
+pub struct NotationType(Vec<Name>);
 
 fn notation_type(i: &str) -> Result<NotationType> {
     map(
@@ -194,7 +179,7 @@ fn notation_type(i: &str) -> Result<NotationType> {
 /// Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'         [VC: Enumeration]
 ///                                                                       [VC: No Duplicate Tokens]
 #[derive(Debug)]
-pub struct Enumeration<'i>(Vec<Nmtoken<'i>>);
+pub struct Enumeration(Vec<Nmtoken>);
 
 /// Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'         [VC: Enumeration]
 ///                                                                       [VC: No Duplicate Tokens]
@@ -212,11 +197,11 @@ fn enumeration(i: &str) -> Result<Enumeration> {
 }
 
 #[derive(Debug)]
-pub enum DefaultDecl<'i> {
+pub enum DefaultDecl {
     Required,
     Implied,
-    Fixed(AttValue<'i>),
-    Default(AttValue<'i>),
+    Fixed(AttValue),
+    Default(AttValue),
 }
 /// DefaultDecl ::= '#REQUIRED' | '#IMPLIED'
 ///                 | (('#FIXED' S)? AttValue) [VC: Required Attribute]
@@ -250,16 +235,16 @@ fn default_decl(i: &str) -> Result<DefaultDecl> {
 }
 
 #[derive(Debug)]
-pub struct AttValue<'i>(Vec<ValueOrReference<'i>>);
+pub struct AttValue(Vec<ValueOrReference>);
 
 #[derive(Debug)]
-pub enum ValueOrReference<'i> {
-    Value(Value<'i>),
-    Reference(Reference<'i>),
+pub enum ValueOrReference {
+    Value(Value),
+    Reference(Reference),
 }
 
 #[derive(Debug)]
-pub struct Value<'i>(&'i str);
+pub struct Value(String);
 
 /// AttValue ::= '"' ([^<&"] | Reference)* '"'
 ///              |  "'" ([^<&'] | Reference)* "'"
@@ -269,7 +254,9 @@ fn att_value(i: &str) -> Result<AttValue> {
             delimited(
                 char('"'),
                 many0(alt((
-                    map(is_not("<&\""), |v| ValueOrReference::Value(Value(v))),
+                    map(is_not("<&\""), |v: &str| {
+                        ValueOrReference::Value(Value(v.to_string()))
+                    }),
                     map(reference, |r| ValueOrReference::Reference(r)),
                 ))),
                 char('"'),
@@ -277,13 +264,15 @@ fn att_value(i: &str) -> Result<AttValue> {
             delimited(
                 char('\''),
                 many0(alt((
-                    map(is_not("<&'"), |v| ValueOrReference::Value(Value(v))),
+                    map(is_not("<&'"), |v: &str| {
+                        ValueOrReference::Value(Value(v.to_string()))
+                    }),
                     map(reference, |r| ValueOrReference::Reference(r)),
                 ))),
                 char('\''),
             ),
         )),
-        AttValue,
+        |v| AttValue(v),
     )(i)
 }
 
