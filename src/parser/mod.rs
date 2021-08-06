@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use either::Either;
 use indexmap::IndexMap;
 use nom::branch::alt;
@@ -319,7 +321,11 @@ fn entity_definetions(i: &str) -> IndexMap<String, entity::PEDecl> {
         .collect()
 }
 
-pub fn resolve_entity_definitions(i: &str) -> IndexMap<String, String> {
+pub fn resolve_entity_definitions<P: AsRef<Path>, I: Into<Option<P>>>(
+    i: &str,
+    path: I,
+) -> IndexMap<String, String> {
+    let path = path.into();
     let definitions = entity_definetions(i);
     let iter = definitions.into_iter();
     let mut definitions: IndexMap<String, String> = IndexMap::new();
@@ -328,7 +334,7 @@ pub fn resolve_entity_definitions(i: &str) -> IndexMap<String, String> {
             entity::PEDef::EntityValue(values) => {
                 let mut value = Vec::with_capacity(values.len());
                 for value_or_reference in values.into_iter() {
-                    println!("entity: {} -> {}", &name, &value_or_reference);
+                    // println!("entity: {} -> {}", &name, &value_or_reference);
                     let v = match value_or_reference {
                         entity::ValueOrReference::Value(value) => value.into(),
                         entity::ValueOrReference::Reference(reference) => reference.to_string(),
@@ -359,7 +365,7 @@ pub fn resolve_entity_definitions(i: &str) -> IndexMap<String, String> {
                         continue;
                     }
                     entity::ExternalID::PubidLiteralWithSystemLiteral(
-                        pubid_literal,
+                        _pubid_literal,
                         system_literal,
                     ) => {
                         if system_literal.starts_with("http") || system_literal.starts_with("ftp") {
@@ -368,7 +374,17 @@ pub fn resolve_entity_definitions(i: &str) -> IndexMap<String, String> {
                                 system_literal
                             );
                         }
-                        match std::fs::read_to_string(system_literal.as_ref()) {
+                        let include = if let Some(ref path) = path {
+                            let path: &Path = path.as_ref();
+                            if let Some(_ext) = path.extension() {
+                                path.with_file_name(system_literal.as_ref())
+                            } else {
+                                path.join(system_literal.as_ref())
+                            }
+                        } else {
+                            PathBuf::from(system_literal.as_ref())
+                        };
+                        match std::fs::read_to_string(&include) {
                             Err(err) => {
                                 eprintln!(
                                     "ERROR: Failed to include ExternalID PubidLiteral SystemLiteral(`{}`), {}",
@@ -376,21 +392,25 @@ pub fn resolve_entity_definitions(i: &str) -> IndexMap<String, String> {
                                     &err
                                 );
                             }
-                            Ok(included) => definitions
-                                .extend(resolve_entity_definitions(&included).into_iter()),
+                            Ok(included) => definitions.extend(
+                                resolve_entity_definitions::<PathBuf, Option<PathBuf>>(
+                                    &included,
+                                    include.into(),
+                                )
+                                .into_iter(),
+                            ),
                         }
-                        println!(
-                            "external_id: {} -> `{}` `{}`",
-                            &name, pubid_literal, system_literal
-                        );
-                        // definitions.insert(name, def);
+                        // println!(
+                        //     "external_id: {} -> `{}` `{}`",
+                        //     &name, pubid_literal, system_literal
+                        // );
                         continue;
                     }
                 }
             }
         }
     }
-    dbg!(&definitions);
+    // dbg!(&definitions);
     definitions
 }
 
@@ -411,9 +431,40 @@ pub fn resolve_references(i: &str, definitions: &IndexMap<String, String>) -> St
     .join(" ")
 }
 
-pub fn parse(i: &str) -> std::result::Result<Vec<ElementType>, String> {
-    let definitions = resolve_entity_definitions(i);
-    dbg!(&definitions);
+pub fn parse<F: AsRef<Path>>(f: F) -> std::result::Result<Vec<ElementType>, String> {
+    let f = f.as_ref();
+    let content =
+        std::fs::read_to_string(f).expect(&format!("Can not read from file {}", f.display()));
+    let definitions = resolve_entity_definitions::<&Path, Option<&Path>>(&content, f.into());
+    // dbg!(&definitions);
+    let resolved = resolve_references(&content, &definitions);
+    let result = many0(alt((
+        map(
+            delimited(multispace0, attlist::attlist_decl, multispace0),
+            ElementType::Attlist,
+        ),
+        map(
+            delimited(multispace0, element::element_decl, multispace0),
+            ElementType::Element,
+        ),
+        map(
+            delimited(multispace0, entity::entity_decl, multispace0),
+            ElementType::Entity,
+        ),
+        map(
+            delimited(multispace0, comment_decl, multispace0),
+            ElementType::Comment,
+        ),
+    )))(resolved.as_str())
+    .finish()
+    .map(|(_, elements)| elements)
+    .map_err(|err| err.to_string());
+    result
+}
+
+pub fn parse_str(i: &str) -> std::result::Result<Vec<ElementType>, String> {
+    let definitions = resolve_entity_definitions::<&str, Option<&str>>(i, None);
+    // dbg!(&definitions);
     let resolved = resolve_references(i, &definitions);
     let result = many0(alt((
         map(

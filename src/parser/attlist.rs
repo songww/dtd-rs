@@ -7,7 +7,7 @@ use nom::{
     sequence::{delimited, pair, tuple},
 };
 
-use super::{dbg_dmp, name, nmtoken, reference, Name, Nmtoken, Reference, Repeatable, Result};
+use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Repeatable, Result};
 
 /// 属性可提供有关元素的额外信息。
 ///
@@ -21,17 +21,17 @@ pub struct AttlistDecl {
 /// AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
 pub(super) fn attlist_decl(i: &str) -> nom::IResult<&str, AttlistDecl> {
     map(
-        dbg_dmp(
-            tuple((
-                dbg_dmp(tag("<!ATTLIST"), "attlist start-tag"),
-                dbg_dmp(multispace1, "attlist many spaces after tag"),
-                dbg_dmp(name, "attlist name"),
-                dbg_dmp(many0(attdef), "attlist attdef"),
-                dbg_dmp(multispace0, "attlist many spaces before close-tag"),
-                dbg_dmp(tag(">"), "attlist close-tag"),
-            )),
-            "attlist",
-        ),
+        // dbg_dmp(
+        tuple((
+            /* dbg_dmp( */ tag("<!ATTLIST"), // "attlist start-tag"),
+            /* dbg_dmp( */ multispace1, // "attlist many spaces after tag"),
+            /* dbg_dmp( */ name, // "attlist name"),
+            /* dbg_dmp( */ many0(attdef), // "attlist attdef"),
+            /* dbg_dmp( */ multispace0, // "attlist many spaces before close-tag"),
+            /* dbg_dmp( */ tag(">"), // "attlist close-tag"),
+        )),
+        // "attlist",
+        // ),
         |(_, _, name, att_defs, _, _)| AttlistDecl {
             name,
             att_defs: Repeatable::ZeroOrManyTimes(att_defs),
@@ -51,16 +51,16 @@ fn attdef(i: &str) -> nom::IResult<&str, AttDef> {
     map(
         tuple((
             multispace1,
-            dbg_dmp(name, "attlist attdef name_or_reference"),
+            /* dbg_dmp( */ name, // "attlist attdef name_or_reference"),
             multispace1,
-            dbg_dmp(atttype, "attlist attdef atttype"),
+            /* dbg_dmp( */ atttype, // "attlist attdef atttype"),
             multispace1,
-            dbg_dmp(default_decl, "attlist attdef default_decl"),
+            /* dbg_dmp( */ default_decl, // "attlist attdef default_decl"),
         )),
         |(_, name, _, atttype, _, default_decl)| {
-            dbg!(&name);
-            dbg!(&atttype);
-            dbg!(&default_decl);
+            // dbg!(&name);
+            // dbg!(&atttype);
+            // dbg!(&default_decl);
             AttDef {
                 name,
                 atttype,
@@ -130,10 +130,10 @@ fn tokenized_type(i: &str) -> Result<AttType> {
 /// AttType            ::=     StringType | TokenizedType | EnumeratedType
 fn atttype(i: &str) -> Result<AttType> {
     alt((
-        dbg_dmp(string_type, "atttype string_type"),
-        dbg_dmp(tokenized_type, "atttype tokenized_type"),
+        /* dbg_dmp( */ string_type, // "atttype string_type"),
+        /* dbg_dmp( */ tokenized_type, // "atttype tokenized_type"),
         map(
-            dbg_dmp(enumerated_type, "atttype enumerated_type"),
+            /* dbg_dmp( */ enumerated_type, // "atttype enumerated_type"),
             AttType::EnumeratedType,
         ),
     ))(i)
@@ -321,21 +321,6 @@ mod tests {
         let attlist = attlist_decl(
             r#"<!ATTLIST form
              method  CDATA   #FIXED "POST">"#,
-        )
-        .finish();
-        assert!(
-            attlist.is_ok(),
-            "{}",
-            attlist.as_ref().unwrap_err().to_string()
-        );
-    }
-
-    #[test]
-    fn test_att_list_4() {
-        let attlist = attlist_decl(
-            r#"<!ATTLIST table
-        %align-h.att;
-        width     %measure;  #IMPLIED>"#,
         )
         .finish();
         assert!(
