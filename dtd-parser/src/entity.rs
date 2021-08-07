@@ -6,10 +6,11 @@ use nom::{
     multi::many0,
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
 };
+use nom_tracable::tracable_parser;
 
 use super::{
     name, pereference, pubid_literal, reference, system_literal, Name, PEReference, PubidLiteral,
-    Reference, Result, SystemLiteral,
+    Reference, Result, Span, SystemLiteral,
 };
 
 /// 用来定义普通文本的变量。实体引用是对实体的引用。
@@ -40,13 +41,13 @@ pub struct Value(String);
 
 /// EntityValue ::= '"' ([^%&"] | PEReference | Reference)* '"'
 ///                 |  "'" ([^%&'] | PEReference | Reference)* "'"
-fn entity_value(i: &str) -> Result<EntityValue> {
+fn entity_value(i: Span) -> Result<EntityValue> {
     map(
         alt((
             delimited(
                 char('"'),
                 many0(alt((
-                    map(is_not("%&\""), |v: &str| {
+                    map(is_not("%&\""), |v: Span| {
                         ValueOrReference::Value(Value(v.to_string()))
                     }),
                     map(reference, |r| ValueOrReference::Reference(r)),
@@ -57,7 +58,7 @@ fn entity_value(i: &str) -> Result<EntityValue> {
             delimited(
                 char('\''),
                 many0(alt((
-                    map(is_not("%&'"), |v: &str| {
+                    map(is_not("%&'"), |v: Span| {
                         ValueOrReference::Value(Value(v.to_string()))
                     }),
                     map(reference, |r| ValueOrReference::Reference(r)),
@@ -70,13 +71,16 @@ fn entity_value(i: &str) -> Result<EntityValue> {
     )(i)
 }
 
-#[derive(Debug, TryInto)]
+#[derive(Debug, Display, TryInto)]
 pub enum EntityDecl {
+    #[display(fmt = "<ENTITY {}>", "_0")]
     GEDecl(GEDecl),
+    #[display(fmt = "<ENTITY % {}>", "_0")]
     PEDecl(PEDecl),
 }
 // EntityDecl ::= GEDecl | PEDecl
-pub(super) fn entity_decl(i: &str) -> Result<EntityDecl> {
+#[tracable_parser]
+pub(super) fn entity_decl(i: Span) -> Result<EntityDecl> {
     alt((
         map(gedecl, EntityDecl::GEDecl),
         map(pedecl, EntityDecl::PEDecl),
@@ -90,7 +94,7 @@ pub struct GEDecl {
     entity_def: EntityDef,
 }
 /// GEDecl ::= '<!ENTITY' S Name S EntityDef S? '>'
-fn gedecl(i: &str) -> Result<GEDecl> {
+fn gedecl(i: Span) -> Result<GEDecl> {
     map(
         tuple((
             preceded(tag("<!ENTITY"), delimited(multispace1, name, multispace1)),
@@ -118,7 +122,7 @@ impl PEDecl {
 }
 
 /// PEDecl	   ::=   	'<!ENTITY' S '%' S Name S PEDef S? '>'
-pub(super) fn pedecl(i: &str) -> Result<PEDecl> {
+pub(super) fn pedecl(i: Span) -> Result<PEDecl> {
     map(
         tuple((
             delimited(
@@ -141,7 +145,7 @@ pub enum EntityDef {
 }
 
 /// EntityDef	   ::=   	EntityValue | (ExternalID NDataDecl?)
-fn entity_def(i: &str) -> Result<EntityDef> {
+fn entity_def(i: Span) -> Result<EntityDef> {
     alt((
         map(entity_value, EntityDef::EntityValue),
         map(tuple((external_id, opt(ndata_decl))), |(eid, ndata)| {
@@ -159,7 +163,7 @@ pub enum PEDef {
 }
 
 /// PEDef	   ::=   	EntityValue | ExternalID
-fn pedef(i: &str) -> Result<PEDef> {
+fn pedef(i: Span) -> Result<PEDef> {
     alt((
         map(entity_value, PEDef::EntityValue),
         map(external_id, PEDef::ExternalID),
@@ -175,7 +179,7 @@ pub enum ExternalID {
 }
 /// ExternalID	   ::=   	'SYSTEM' S SystemLiteral
 ///                         | 'PUBLIC' S PubidLiteral S SystemLiteral
-fn external_id(i: &str) -> Result<ExternalID> {
+fn external_id(i: Span) -> Result<ExternalID> {
     alt((
         map(
             preceded(pair(tag("SYSTEM"), multispace1), system_literal),
@@ -195,7 +199,7 @@ fn external_id(i: &str) -> Result<ExternalID> {
 pub struct NDataDecl(Name);
 
 /// NDataDecl	   ::=   	S 'NDATA' S Name 	[VC: Notation Declared]
-fn ndata_decl(i: &str) -> Result<NDataDecl> {
+fn ndata_decl(i: Span) -> Result<NDataDecl> {
     map(
         preceded(tuple((multispace1, tag("NDATA"), multispace1)), name),
         NDataDecl,
@@ -205,45 +209,47 @@ fn ndata_decl(i: &str) -> Result<NDataDecl> {
 mod tests {
     use nom::Finish;
 
+    use crate::span;
+
     use super::entity_decl;
 
     #[test]
     fn test_internal_entity_parse() {
-        let decl = entity_decl(
+        let decl = entity_decl(span(
             r#"<!ENTITY Pub-Status "This is a pre-release of the
  specification.">"#,
-        )
+        ))
         .finish();
-        assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
+        assert!(decl.is_ok(), "{:?}", decl.as_ref().unwrap_err());
     }
 
     #[test]
     fn test_external_entity_parse() {
-        let decl = entity_decl(
+        let decl = entity_decl(span(
             r#"<!ENTITY open-hatch
          SYSTEM "http://www.textuality.com/boilerplate/OpenHatch.xml">"#,
-        )
+        ))
         .finish();
-        assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
-        let decl = entity_decl(
+        assert!(decl.is_ok(), "{:?}", decl.as_ref().unwrap_err());
+        let decl = entity_decl(span(
             r#"<!ENTITY open-hatch
          PUBLIC "-//Textuality//TEXT Standard open-hatch boilerplate//EN"
          "http://www.textuality.com/boilerplate/OpenHatch.xml">"#,
-        )
+        ))
         .finish();
-        assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
-        let decl = entity_decl(
+        assert!(decl.is_ok(), "{:?}", decl.as_ref().unwrap_err());
+        let decl = entity_decl(span(
             r#"<!ENTITY hatch-pic
          SYSTEM "../grafix/OpenHatch.gif"
          NDATA gif >"#,
-        )
+        ))
         .finish();
-        assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
+        assert!(decl.is_ok(), "{:?}", decl.as_ref().unwrap_err());
     }
 
     #[test]
     fn test_entity_multiline() {
-        let result = entity_decl(
+        let result = entity_decl(span(
             r#"<!ENTITY % basic.atts
   " ids       %ids.type;         #IMPLIED
     names     %refnames.type;    #IMPLIED
@@ -251,29 +257,21 @@ mod tests {
     source    CDATA              #IMPLIED
     classes   %classnames.type;  #IMPLIED
     %additional.basic.atts; ">"#,
-        )
+        ))
         .finish();
-        assert!(
-            result.is_ok(),
-            "{}",
-            result.as_ref().unwrap_err().to_string()
-        );
+        assert!(result.is_ok(), "{:?}", result.as_ref().unwrap_err());
         dbg!(result.unwrap());
     }
 
     #[test]
     fn test_external_entity_parse_2() {
-        let result = entity_decl(
+        let result = entity_decl(span(
             r#"<!ENTITY % calstblx PUBLIC
     "-//OASIS//DTD XML Exchange Table Model 19990315//EN"
     "soextblx.dtd">"#,
-        )
+        ))
         .finish();
-        assert!(
-            result.is_ok(),
-            "{}",
-            result.as_ref().unwrap_err().to_string()
-        );
+        assert!(result.is_ok(), "{:?}", result.as_ref().unwrap_err());
         dbg!(result.unwrap());
     }
 }

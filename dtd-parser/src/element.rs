@@ -1,13 +1,14 @@
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{space0, space1},
-    combinator::map,
+    character::complete::{multispace0, multispace1},
+    combinator::{map, opt},
     multi::{many0, many1},
-    sequence::{terminated, tuple},
+    sequence::{preceded, terminated, tuple},
 };
+use nom_tracable::tracable_parser;
 
-use super::{map_name, map_pereference, name, MixedPCDATA, Name, Repeatable};
+use super::{map_name, map_pereference, name, MixedPCDATA, Name, Repeatable, Result, Span};
 
 /// 元素是 XML 以及 HTML 文档的主要构建模块。
 ///
@@ -30,23 +31,34 @@ pub enum ElementCategory {
     Children(Repeatable<Child>),
 }
 
+#[tracable_parser]
+fn parenthesis_open(i: Span) -> Result<Span> {
+    tag("(")(i)
+}
+
+#[tracable_parser]
+fn parenthesis_close(i: Span) -> Result<Span> {
+    tag(")")(i)
+}
+
 /// Mixed	   ::=   	'(' S? '#PCDATA' (S? '|' S? Name)* S? ')*'
 /// 			| '(' S? '#PCDATA' S? ')'
-fn mixed(i: &str) -> nom::IResult<&str, ElementCategory> {
+#[tracable_parser]
+fn mixed(i: Span) -> Result<ElementCategory> {
     map(
         tuple((
-            tuple((tag("("), space0, tag("#PCDATA"), space0)),
+            tuple((tag("("), multispace0, tag("#PCDATA"), multispace0)),
             alt((
-                map(tuple((space0, tag(")"))), |_| MixedPCDATA(Vec::new())),
+                map(tuple((multispace0, tag(")"))), |_| MixedPCDATA(Vec::new())),
                 map(
                     terminated(
                         many0(tuple((
-                            space0,
+                            multispace0,
                             tag("|"),
-                            space0,
+                            multispace0,
                             alt((map_name, map_pereference)),
                         ))),
-                        tuple((space0, tag(")*"))),
+                        tuple((multispace0, tag(")*"))),
                     ),
                     |x| MixedPCDATA(x.into_iter().map(|(_, _, _, x)| x).collect()),
                 ),
@@ -70,18 +82,23 @@ pub enum Child {
 }
 
 ///   	children	   ::=   	(choice | seq) ('?' | '*' | '+')?
-fn children(i: &str) -> nom::IResult<&str, ElementCategory> {
+#[tracable_parser]
+fn children(i: Span) -> Result<ElementCategory> {
     map(
         tuple((
             alt((map(choices, Child::Choices), map(sequence, Child::Seq))),
-            alt((tag("?"), tag("*"), tag("+"))),
+            opt(alt((tag("?"), tag("*"), tag("+")))),
         )),
         |(child, repeatable)| {
-            let repeatable = match repeatable {
-                "?" => |child| Repeatable::AtMostOnce(child),
-                "*" => |child| Repeatable::ZeroOrManyTimes(child),
-                "+" => |child| Repeatable::AtLeastOnce(child),
-                _ => unreachable!(),
+            let repeatable = if let Some(repeatable) = repeatable {
+                match *repeatable {
+                    "?" => |child| Repeatable::AtMostOnce(child),
+                    "*" => |child| Repeatable::ZeroOrManyTimes(child),
+                    "+" => |child| Repeatable::AtLeastOnce(child),
+                    _ => unreachable!(),
+                }
+            } else {
+                |child| Repeatable::Once(child)
             };
             ElementCategory::Children(repeatable(child))
         },
@@ -89,36 +106,31 @@ fn children(i: &str) -> nom::IResult<&str, ElementCategory> {
 }
 
 ///   	seq	   ::=   	'(' S? cp ( S? ',' S? cp )* S? ')'	[VC: Proper Group/PE Nesting]
-fn sequence(i: &str) -> nom::IResult<&str, Seq<Repeatable<Child>>> {
+#[tracable_parser]
+fn sequence(i: Span) -> Result<Seq<Repeatable<Child>>> {
     map(
         tuple((
-            tag("("),
-            space0,
-            cuple,
-            many0(tuple((space0, tag(","), space0, cuple))),
-            space0,
-            tag(")"),
+            preceded(tuple((parenthesis_open, multispace0)), cuple),
+            terminated(
+                many0(preceded(tuple((multispace0, tag(","), multispace0)), cuple)),
+                tuple((multispace0, parenthesis_close)),
+            ),
         )),
-        |(_, _, cp, many, _, _)| {
-            Seq({
-                std::iter::once(cp)
-                    .chain(many.into_iter().map(|(_, _, _, x)| x))
-                    .collect()
-            })
-        },
+        |(cp, many)| Seq(std::iter::once(cp).chain(many.into_iter()).collect()),
     )(i)
 }
 
 ///   	choice	   ::=   	'(' S? cp ( S? '|' S? cp )+ S? ')'	[VC: Proper Group/PE Nesting]
-fn choices(i: &str) -> nom::IResult<&str, Choices<Repeatable<Child>>> {
+#[tracable_parser]
+fn choices(i: Span) -> Result<Choices<Repeatable<Child>>> {
     map(
         tuple((
-            tag("("),
-            space0,
+            parenthesis_open,
+            multispace0,
             cuple,
-            many1(tuple((space0, tag("|"), space0, cuple))),
-            space0,
-            tag(")"),
+            many1(tuple((multispace0, tag("|"), multispace0, cuple))),
+            multispace0,
+            parenthesis_close,
         )),
         |(_, _, cp, many, _, _)| {
             Choices(
@@ -131,7 +143,8 @@ fn choices(i: &str) -> nom::IResult<&str, Choices<Repeatable<Child>>> {
 }
 
 ///   	cp	   ::=   	(Name | choice | seq) ('?' | '*' | '+')?
-fn cuple(i: &str) -> nom::IResult<&str, Repeatable<Child>> {
+#[tracable_parser]
+fn cuple(i: Span) -> Result<Repeatable<Child>> {
     map(
         tuple((
             alt((
@@ -139,38 +152,45 @@ fn cuple(i: &str) -> nom::IResult<&str, Repeatable<Child>> {
                 map(choices, Child::Choices),
                 map(sequence, Child::Seq),
             )),
-            alt((tag("?"), tag("*"), tag("+"))),
+            opt(alt((tag("?"), tag("*"), tag("+")))),
         )),
         |(child, repeatable)| {
-            let repeatable = match repeatable {
-                "?" => |child| Repeatable::AtMostOnce(child),
-                "*" => |child| Repeatable::ZeroOrManyTimes(child),
-                "+" => |child| Repeatable::AtLeastOnce(child),
-                _ => unreachable!(),
+            let repeatable = if let Some(repeatable) = repeatable {
+                match *repeatable {
+                    "?" => |child| Repeatable::AtMostOnce(child),
+                    "*" => |child| Repeatable::ZeroOrManyTimes(child),
+                    "+" => |child| Repeatable::AtLeastOnce(child),
+                    _ => unreachable!(),
+                }
+            } else {
+                |child| Repeatable::Once(child)
             };
             repeatable(child)
         },
     )(i)
 }
 
-fn empty(i: &str) -> nom::IResult<&str, ElementCategory> {
+#[tracable_parser]
+fn empty(i: Span) -> Result<ElementCategory> {
     map(tag("EMPTY"), |_| ElementCategory::Empty)(i)
 }
 
-fn any(i: &str) -> nom::IResult<&str, ElementCategory> {
+#[tracable_parser]
+fn any(i: Span) -> Result<ElementCategory> {
     map(tag("ANY"), |_| ElementCategory::Any)(i)
 }
 
 /// <!ELEMENT 元素名称 类别>
-pub(super) fn element_decl(i: &str) -> nom::IResult<&str, ElementDecl> {
+#[tracable_parser]
+pub(super) fn element_decl(i: Span) -> Result<ElementDecl> {
     map(
         tuple((
             tag("<!ELEMENT"),
-            space1,
+            multispace1,
             name,
-            space1,
+            multispace1,
             alt((empty, any, mixed, children)),
-            space0,
+            multispace0,
             tag(">"),
         )),
         |(_, _, n, _, c, _, _)| ElementDecl {
@@ -228,17 +248,65 @@ pub(super) fn element_decl(i: &str) -> nom::IResult<&str, ElementDecl> {
 #[cfg(test)]
 mod tests {
 
-    use super::element_decl;
+    use super::{children, element_decl};
+    use crate::span;
     use nom::Finish;
 
     #[test]
     fn test_element_decl() {
-        let el = element_decl("<!ELEMENT b (#PCDATA)>").finish();
-        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
-        let el = element_decl("<!ELEMENT p (#PCDATA|a|ul|b|i|em)*>").finish();
-        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
-        let el = element_decl("<!ELEMENT p (#PCDATA | %font; | %phrase; | %special; | %form;)* >")
-            .finish();
-        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
+        let el = element_decl(span("<!ELEMENT b (#PCDATA)>")).finish();
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
+        let el = element_decl(span("<!ELEMENT p (#PCDATA|a|ul|b|i|em)*>")).finish();
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
+        let el = element_decl(span(
+            "<!ELEMENT p (#PCDATA | %font; | %phrase; | %special; | %form;)* >",
+        ))
+        .finish();
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
+    }
+
+    #[test]
+    fn test_element_decl_multiline() {
+        let el = element_decl(span(
+            r#"<!ELEMENT generated  (#PCDATA |   emphasis | strong | literal | math
+    | reference | footnote_reference | citation_reference
+    | substitution_reference | title_reference
+    | abbreviation | acronym | subscript | superscript
+    | inline | problematic | generated
+    | target | image | raw
+        )* >"#,
+        ));
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
+    }
+
+    #[test]
+    fn test_element_decl_multiline2() {
+        let el = element_decl(span(
+            r#"<!ELEMENT document
+    ( (title, subtitle?)?,
+      meta?,
+      decoration?,
+      (docinfo, transition?)?,
+       ( ( (  paragraph | compound | container | literal_block | doctest_block
+    | math_block | line_block | block_quote
+    | table | figure | image | footnote | citation | rubric
+    | bullet_list | enumerated_list | definition_list | field_list
+    | option_list
+    | attention | caution | danger | error | hint | important | note
+    | tip | warning | admonition
+    | reference | target | substitution_definition | comment | pending
+    | system_message | raw
+         | topic | sidebar)+, transition? )*,
+       ( (  section
+        ), (transition?, (  section
+        ) )* )? ) )>"#,
+        ));
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
+    }
+
+    #[test]
+    fn test_child() {
+        let el = children(span("(title, subtitle?)?"));
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
     }
 }

@@ -1,13 +1,14 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
-    character::complete::{char, multispace0, multispace1},
+    character::complete::{char, multispace0, multispace1, space1},
     combinator::{map, opt},
     multi::{many0, separated_list1},
-    sequence::{delimited, pair, tuple},
+    sequence::{delimited, pair, preceded, terminated, tuple},
 };
+use nom_tracable::tracable_parser;
 
-use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Repeatable, Result};
+use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Repeatable, Result, Span};
 
 /// 属性可提供有关元素的额外信息。
 ///
@@ -15,26 +16,20 @@ use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Repeatable, Resu
 #[derive(Debug)]
 pub struct AttlistDecl {
     name: Name,
-    att_defs: Repeatable<Vec<AttDef>>,
+    attdefs: Repeatable<Vec<AttDef>>,
 }
 
 /// AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
-pub(super) fn attlist_decl(i: &str) -> nom::IResult<&str, AttlistDecl> {
+#[tracable_parser]
+pub(super) fn attlist_decl(i: Span) -> Result<AttlistDecl> {
     map(
-        // dbg_dmp(
         tuple((
-            /* dbg_dmp( */ tag("<!ATTLIST"), // "attlist start-tag"),
-            /* dbg_dmp( */ multispace1, // "attlist many spaces after tag"),
-            /* dbg_dmp( */ name, // "attlist name"),
-            /* dbg_dmp( */ many0(attdef), // "attlist attdef"),
-            /* dbg_dmp( */ multispace0, // "attlist many spaces before close-tag"),
-            /* dbg_dmp( */ tag(">"), // "attlist close-tag"),
+            preceded(tuple((tag("<!ATTLIST"), multispace1)), name),
+            terminated(many0(attdef), tuple((multispace0, tag(">")))),
         )),
-        // "attlist",
-        // ),
-        |(_, _, name, att_defs, _, _)| AttlistDecl {
+        |(name, attdefs)| AttlistDecl {
             name,
-            att_defs: Repeatable::ZeroOrManyTimes(att_defs),
+            attdefs: Repeatable::ZeroOrManyTimes(attdefs),
         },
     )(i)
 }
@@ -47,25 +42,18 @@ pub struct AttDef {
 }
 
 /// AttDef ::= S Name S AttType S DefaultDecl
-fn attdef(i: &str) -> nom::IResult<&str, AttDef> {
+#[tracable_parser]
+fn attdef(i: Span) -> Result<AttDef> {
     map(
         tuple((
-            multispace1,
-            /* dbg_dmp( */ name, // "attlist attdef name_or_reference"),
-            multispace1,
-            /* dbg_dmp( */ atttype, // "attlist attdef atttype"),
-            multispace1,
-            /* dbg_dmp( */ default_decl, // "attlist attdef default_decl"),
+            preceded(multispace0, name),
+            preceded(multispace0, atttype),
+            preceded(multispace0, default_decl),
         )),
-        |(_, name, _, atttype, _, default_decl)| {
-            // dbg!(&name);
-            // dbg!(&atttype);
-            // dbg!(&default_decl);
-            AttDef {
-                name,
-                atttype,
-                default_decl,
-            }
+        |(name, atttype, default_decl)| AttDef {
+            name,
+            atttype,
+            default_decl,
         },
     )(i)
 }
@@ -90,7 +78,8 @@ pub enum TokenizedType {
 }
 
 ///      StringType         ::=     'CDATA'
-fn string_type(i: &str) -> nom::IResult<&str, AttType> {
+#[tracable_parser]
+fn string_type(i: Span) -> Result<AttType> {
     map(tag("CDATA"), |_| AttType::StringType)(i)
 }
 
@@ -103,18 +92,19 @@ fn string_type(i: &str) -> nom::IResult<&str, AttType> {
 ///                                 | 'ENTITIES'    [VC: Entity Name]
 ///                                 | 'NMTOKEN'     [VC: Name Token]
 ///                                 | 'NMTOKENS'    [VC: Name Token]]
-fn tokenized_type(i: &str) -> Result<AttType> {
+#[tracable_parser]
+fn tokenized_type(i: Span) -> Result<AttType> {
     map(
         alt((
-            tag("ID"),
-            tag("IDREF"),
-            tag("IDREFS"),
-            tag("ENTITY"),
-            tag("ENTITIES"),
-            tag("NMTOKEN"),
-            tag("NMTOKENS"),
+            terminated(tag("ID"), space1),
+            terminated(tag("IDREF"), space1),
+            terminated(tag("IDREFS"), space1),
+            terminated(tag("ENTITY"), space1),
+            terminated(tag("ENTITIES"), space1),
+            terminated(tag("NMTOKEN"), space1),
+            terminated(tag("NMTOKENS"), space1),
         )),
-        |ty| match ty {
+        |ty: Span| match *ty {
             "ID" => AttType::TokenizedType(TokenizedType::ID),
             "IDREF" => AttType::TokenizedType(TokenizedType::IDREF),
             "IDREFS" => AttType::TokenizedType(TokenizedType::IDREFS),
@@ -128,14 +118,12 @@ fn tokenized_type(i: &str) -> Result<AttType> {
 }
 
 /// AttType            ::=     StringType | TokenizedType | EnumeratedType
-fn atttype(i: &str) -> Result<AttType> {
+#[tracable_parser]
+fn atttype(i: Span) -> Result<AttType> {
     alt((
-        /* dbg_dmp( */ string_type, // "atttype string_type"),
-        /* dbg_dmp( */ tokenized_type, // "atttype tokenized_type"),
-        map(
-            /* dbg_dmp( */ enumerated_type, // "atttype enumerated_type"),
-            AttType::EnumeratedType,
-        ),
+        string_type,
+        tokenized_type,
+        map(enumerated_type, AttType::EnumeratedType),
     ))(i)
 }
 
@@ -147,7 +135,8 @@ pub enum EnumeratedType {
 }
 
 /// EnumeratedType ::= NotationType | Enumeration
-fn enumerated_type(i: &str) -> Result<EnumeratedType> {
+#[tracable_parser]
+fn enumerated_type(i: Span) -> Result<EnumeratedType> {
     alt((
         map(notation_type, EnumeratedType::NotationType),
         map(enumeration, EnumeratedType::Enumeration),
@@ -161,7 +150,8 @@ fn enumerated_type(i: &str) -> Result<EnumeratedType> {
 #[derive(Debug)]
 pub struct NotationType(Vec<Name>);
 
-fn notation_type(i: &str) -> Result<NotationType> {
+#[tracable_parser]
+fn notation_type(i: Span) -> Result<NotationType> {
     map(
         tuple((
             tag("NOTATION"),
@@ -183,7 +173,8 @@ pub struct Enumeration(Vec<Nmtoken>);
 
 /// Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'         [VC: Enumeration]
 ///                                                                       [VC: No Duplicate Tokens]
-fn enumeration(i: &str) -> Result<Enumeration> {
+#[tracable_parser]
+fn enumeration(i: Span) -> Result<Enumeration> {
     map(
         tuple((
             tag("("),
@@ -217,17 +208,18 @@ pub enum DefaultDecl {
 ///           type    (bullets|ordered|glossary)  "ordered">
 /// <!ATTLIST form
 ///           method  CDATA   #FIXED "POST">
-fn default_decl(i: &str) -> Result<DefaultDecl> {
+#[tracable_parser]
+fn default_decl(i: Span) -> Result<DefaultDecl> {
     alt((
         map(tag("#REQUIRED"), |_| DefaultDecl::Required),
         map(tag("#IMPLIED"), |_| DefaultDecl::Implied),
         map(
-            pair(opt(pair(tag("#FIXED"), multispace1)), att_value),
-            |(isfixed, att_value)| {
+            pair(opt(pair(tag("#FIXED"), multispace1)), attvalue),
+            |(isfixed, attvalue)| {
                 if isfixed.is_some() {
-                    DefaultDecl::Fixed(att_value)
+                    DefaultDecl::Fixed(attvalue)
                 } else {
-                    DefaultDecl::Default(att_value)
+                    DefaultDecl::Default(attvalue)
                 }
             },
         ),
@@ -248,13 +240,14 @@ pub struct Value(String);
 
 /// AttValue ::= '"' ([^<&"] | Reference)* '"'
 ///              |  "'" ([^<&'] | Reference)* "'"
-fn att_value(i: &str) -> Result<AttValue> {
+#[tracable_parser]
+fn attvalue(i: Span) -> Result<AttValue> {
     map(
         alt((
             delimited(
                 char('"'),
                 many0(alt((
-                    map(is_not("<&\""), |v: &str| {
+                    map(is_not("<&\""), |v: Span| {
                         ValueOrReference::Value(Value(v.to_string()))
                     }),
                     map(reference, |r| ValueOrReference::Reference(r)),
@@ -264,7 +257,7 @@ fn att_value(i: &str) -> Result<AttValue> {
             delimited(
                 char('\''),
                 many0(alt((
-                    map(is_not("<&'"), |v: &str| {
+                    map(is_not("<&'"), |v: Span| {
                         ValueOrReference::Value(Value(v.to_string()))
                     }),
                     map(reference, |r| ValueOrReference::Reference(r)),
@@ -281,52 +274,58 @@ mod tests {
     use nom::Finish;
 
     use super::attlist_decl;
+    use crate::span;
 
     // <!ATTLIST termdef
     //           id      ID      #REQUIRED
     //           name    CDATA   #IMPLIED>
     #[test]
-    fn test_att_list_1() {
-        let attlist = attlist_decl(
+    fn test_attlist_1() {
+        let attlist = attlist_decl(span(
             r#"<!ATTLIST termdef
              id      ID      #REQUIRED
              name    CDATA   #IMPLIED>"#,
-        )
+        ))
         .finish();
-        assert!(
-            attlist.is_ok(),
-            "{}",
-            attlist.as_ref().unwrap_err().to_string()
-        );
+        assert!(attlist.is_ok(), "{:?}", attlist.as_ref().unwrap_err());
     }
     // <!ATTLIST list
     //           type    (bullets|ordered|glossary)  "ordered">
     #[test]
-    fn test_att_list_2() {
-        let attlist = attlist_decl(
+    fn test_attlist_2() {
+        let attlist = attlist_decl(span(
             r#"<!ATTLIST list
              type    (bullets|ordered|glossary)  "ordered">"#,
-        )
+        ))
         .finish();
-        assert!(
-            attlist.is_ok(),
-            "{}",
-            attlist.as_ref().unwrap_err().to_string()
-        );
+        assert!(attlist.is_ok(), "{:?}", attlist.as_ref().unwrap_err());
     }
     // <!ATTLIST form
     //           method  CDATA   #FIXED "POST">
     #[test]
-    fn test_att_list_3() {
-        let attlist = attlist_decl(
+    fn test_attlist_3() {
+        let attlist = attlist_decl(span(
             r#"<!ATTLIST form
              method  CDATA   #FIXED "POST">"#,
-        )
+        ))
         .finish();
-        assert!(
-            attlist.is_ok(),
-            "{}",
-            attlist.as_ref().unwrap_err().to_string()
-        );
+        assert!(attlist.is_ok(), "{:?}", attlist.as_ref().unwrap_err());
+    }
+
+    #[test]
+    fn test_attlist_4() {
+        let attlist = attlist_decl(span(
+            r#"<!ATTLIST document
+     ids        NMTOKENS          #IMPLIED
+    names      CDATA     #IMPLIED
+    dupnames   CDATA     #IMPLIED
+    source    CDATA              #IMPLIED
+    classes    NMTOKENS   #IMPLIED
+
+    title     CDATA     #IMPLIED>"#,
+        ))
+        .finish();
+        // dbg!(attlist.as_ref().unwrap_err());
+        assert!(attlist.is_ok(), "{:?}", attlist.as_ref().unwrap_err());
     }
 }
