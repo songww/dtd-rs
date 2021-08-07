@@ -6,10 +6,11 @@ use nom::{
     multi::many0,
     sequence::{delimited, pair, preceded, separated_pair, terminated, tuple},
 };
+use nom_tracable::tracable_parser;
 
 use super::{
     name, pereference, pubid_literal, reference, system_literal, Name, PEReference, PubidLiteral,
-    Reference, Result, SystemLiteral,
+    Reference, Result, Span, SystemLiteral,
 };
 
 /// 用来定义普通文本的变量。实体引用是对实体的引用。
@@ -40,13 +41,13 @@ pub struct Value(String);
 
 /// EntityValue ::= '"' ([^%&"] | PEReference | Reference)* '"'
 ///                 |  "'" ([^%&'] | PEReference | Reference)* "'"
-fn entity_value(i: &str) -> Result<EntityValue> {
+fn entity_value(i: Span) -> Result<EntityValue> {
     map(
         alt((
             delimited(
                 char('"'),
                 many0(alt((
-                    map(is_not("%&\""), |v: &str| {
+                    map(is_not("%&\""), |v: Span| {
                         ValueOrReference::Value(Value(v.to_string()))
                     }),
                     map(reference, |r| ValueOrReference::Reference(r)),
@@ -57,7 +58,7 @@ fn entity_value(i: &str) -> Result<EntityValue> {
             delimited(
                 char('\''),
                 many0(alt((
-                    map(is_not("%&'"), |v: &str| {
+                    map(is_not("%&'"), |v: Span| {
                         ValueOrReference::Value(Value(v.to_string()))
                     }),
                     map(reference, |r| ValueOrReference::Reference(r)),
@@ -76,7 +77,8 @@ pub enum EntityDecl {
     PEDecl(PEDecl),
 }
 // EntityDecl ::= GEDecl | PEDecl
-pub(super) fn entity_decl(i: &str) -> Result<EntityDecl> {
+#[tracable_parser]
+pub(super) fn entity_decl(i: Span) -> Result<EntityDecl> {
     alt((
         map(gedecl, EntityDecl::GEDecl),
         map(pedecl, EntityDecl::PEDecl),
@@ -90,7 +92,7 @@ pub struct GEDecl {
     entity_def: EntityDef,
 }
 /// GEDecl ::= '<!ENTITY' S Name S EntityDef S? '>'
-fn gedecl(i: &str) -> Result<GEDecl> {
+fn gedecl(i: Span) -> Result<GEDecl> {
     map(
         tuple((
             preceded(tag("<!ENTITY"), delimited(multispace1, name, multispace1)),
@@ -118,7 +120,7 @@ impl PEDecl {
 }
 
 /// PEDecl	   ::=   	'<!ENTITY' S '%' S Name S PEDef S? '>'
-pub(super) fn pedecl(i: &str) -> Result<PEDecl> {
+pub(super) fn pedecl(i: Span) -> Result<PEDecl> {
     map(
         tuple((
             delimited(
@@ -141,7 +143,7 @@ pub enum EntityDef {
 }
 
 /// EntityDef	   ::=   	EntityValue | (ExternalID NDataDecl?)
-fn entity_def(i: &str) -> Result<EntityDef> {
+fn entity_def(i: Span) -> Result<EntityDef> {
     alt((
         map(entity_value, EntityDef::EntityValue),
         map(tuple((external_id, opt(ndata_decl))), |(eid, ndata)| {
@@ -159,7 +161,7 @@ pub enum PEDef {
 }
 
 /// PEDef	   ::=   	EntityValue | ExternalID
-fn pedef(i: &str) -> Result<PEDef> {
+fn pedef(i: Span) -> Result<PEDef> {
     alt((
         map(entity_value, PEDef::EntityValue),
         map(external_id, PEDef::ExternalID),
@@ -175,7 +177,7 @@ pub enum ExternalID {
 }
 /// ExternalID	   ::=   	'SYSTEM' S SystemLiteral
 ///                         | 'PUBLIC' S PubidLiteral S SystemLiteral
-fn external_id(i: &str) -> Result<ExternalID> {
+fn external_id(i: Span) -> Result<ExternalID> {
     alt((
         map(
             preceded(pair(tag("SYSTEM"), multispace1), system_literal),
@@ -195,7 +197,7 @@ fn external_id(i: &str) -> Result<ExternalID> {
 pub struct NDataDecl(Name);
 
 /// NDataDecl	   ::=   	S 'NDATA' S Name 	[VC: Notation Declared]
-fn ndata_decl(i: &str) -> Result<NDataDecl> {
+fn ndata_decl(i: Span) -> Result<NDataDecl> {
     map(
         preceded(tuple((multispace1, tag("NDATA"), multispace1)), name),
         NDataDecl,

@@ -6,8 +6,9 @@ use nom::{
     multi::{many0, many1},
     sequence::{terminated, tuple},
 };
+use nom_tracable::tracable_parser;
 
-use super::{map_name, map_pereference, name, MixedPCDATA, Name, Repeatable};
+use super::{map_name, map_pereference, name, MixedPCDATA, Name, Repeatable, Result, Span};
 
 /// 元素是 XML 以及 HTML 文档的主要构建模块。
 ///
@@ -32,7 +33,7 @@ pub enum ElementCategory {
 
 /// Mixed	   ::=   	'(' S? '#PCDATA' (S? '|' S? Name)* S? ')*'
 /// 			| '(' S? '#PCDATA' S? ')'
-fn mixed(i: &str) -> nom::IResult<&str, ElementCategory> {
+fn mixed(i: Span) -> Result<ElementCategory> {
     map(
         tuple((
             tuple((tag("("), space0, tag("#PCDATA"), space0)),
@@ -70,14 +71,14 @@ pub enum Child {
 }
 
 ///   	children	   ::=   	(choice | seq) ('?' | '*' | '+')?
-fn children(i: &str) -> nom::IResult<&str, ElementCategory> {
+fn children(i: Span) -> Result<ElementCategory> {
     map(
         tuple((
             alt((map(choices, Child::Choices), map(sequence, Child::Seq))),
             alt((tag("?"), tag("*"), tag("+"))),
         )),
         |(child, repeatable)| {
-            let repeatable = match repeatable {
+            let repeatable = match *repeatable {
                 "?" => |child| Repeatable::AtMostOnce(child),
                 "*" => |child| Repeatable::ZeroOrManyTimes(child),
                 "+" => |child| Repeatable::AtLeastOnce(child),
@@ -89,7 +90,7 @@ fn children(i: &str) -> nom::IResult<&str, ElementCategory> {
 }
 
 ///   	seq	   ::=   	'(' S? cp ( S? ',' S? cp )* S? ')'	[VC: Proper Group/PE Nesting]
-fn sequence(i: &str) -> nom::IResult<&str, Seq<Repeatable<Child>>> {
+fn sequence(i: Span) -> Result<Seq<Repeatable<Child>>> {
     map(
         tuple((
             tag("("),
@@ -110,7 +111,7 @@ fn sequence(i: &str) -> nom::IResult<&str, Seq<Repeatable<Child>>> {
 }
 
 ///   	choice	   ::=   	'(' S? cp ( S? '|' S? cp )+ S? ')'	[VC: Proper Group/PE Nesting]
-fn choices(i: &str) -> nom::IResult<&str, Choices<Repeatable<Child>>> {
+fn choices(i: Span) -> Result<Choices<Repeatable<Child>>> {
     map(
         tuple((
             tag("("),
@@ -131,7 +132,7 @@ fn choices(i: &str) -> nom::IResult<&str, Choices<Repeatable<Child>>> {
 }
 
 ///   	cp	   ::=   	(Name | choice | seq) ('?' | '*' | '+')?
-fn cuple(i: &str) -> nom::IResult<&str, Repeatable<Child>> {
+fn cuple(i: Span) -> Result<Repeatable<Child>> {
     map(
         tuple((
             alt((
@@ -142,7 +143,7 @@ fn cuple(i: &str) -> nom::IResult<&str, Repeatable<Child>> {
             alt((tag("?"), tag("*"), tag("+"))),
         )),
         |(child, repeatable)| {
-            let repeatable = match repeatable {
+            let repeatable = match *repeatable {
                 "?" => |child| Repeatable::AtMostOnce(child),
                 "*" => |child| Repeatable::ZeroOrManyTimes(child),
                 "+" => |child| Repeatable::AtLeastOnce(child),
@@ -153,16 +154,17 @@ fn cuple(i: &str) -> nom::IResult<&str, Repeatable<Child>> {
     )(i)
 }
 
-fn empty(i: &str) -> nom::IResult<&str, ElementCategory> {
+fn empty(i: Span) -> Result<ElementCategory> {
     map(tag("EMPTY"), |_| ElementCategory::Empty)(i)
 }
 
-fn any(i: &str) -> nom::IResult<&str, ElementCategory> {
+fn any(i: Span) -> Result<ElementCategory> {
     map(tag("ANY"), |_| ElementCategory::Any)(i)
 }
 
 /// <!ELEMENT 元素名称 类别>
-pub(super) fn element_decl(i: &str) -> nom::IResult<&str, ElementDecl> {
+#[tracable_parser]
+pub(super) fn element_decl(i: Span) -> Result<ElementDecl> {
     map(
         tuple((
             tag("<!ELEMENT"),

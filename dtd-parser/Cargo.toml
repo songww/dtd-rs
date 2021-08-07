@@ -16,3 +16,10 @@ derive_more = { version = "0.99", features = [ "as_ref", "as_mut", "deref", "der
 either = "1.6"
 indexmap = { version = "1.7", features = ["std"] }
 nom = "6"
+nom-tracable = "0.7"
+nom_locate = "3"
+nom-greedyerror = "0.3"
+
+[features]
+default = []
+trace   = ["nom-tracable/trace"]

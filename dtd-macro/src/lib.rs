@@ -6,20 +6,22 @@ use syn::parse::{Parse, ParseStream, Result};
 use syn::spanned::Spanned;
 use syn::{parse_macro_input, Expr, Ident, LitStr, Token, Type, Visibility};
 
-enum DefinetionsOrPath {
-    Definetions(String),
+use dtd_parser as parser;
+
+enum DefinitionsOrPath {
+    Definetions(LitStr),
     Path(LitStr),
 }
 
-impl Parse for DefinetionsOrPath {
+impl Parse for DefinitionsOrPath {
     fn parse(input: ParseStream) -> Result<Self> {
         let maybe_path: LitStr = input.parse()?;
         let value = maybe_path.value();
         let trimed = value.trim();
         if trimed.starts_with("<") && trimed.ends_with(">") {
-            Ok(DefinetionsOrPath::Definetions(value))
+            Ok(DefinitionsOrPath::Definetions(maybe_path))
         } else {
-            Ok(DefinetionsOrPath::Path(maybe_path))
+            Ok(DefinitionsOrPath::Path(maybe_path))
         }
     }
 }
@@ -44,7 +46,7 @@ impl Parse for DefinetionsOrPath {
 ///     }
 #[proc_macro]
 pub fn dtd(input: TokenStream) -> TokenStream {
-    let definitions_or_path = parse_macro_input!(input as DefinetionsOrPath);
+    let definitions_or_path = parse_macro_input!(input as DefinitionsOrPath);
 
     // The warning looks like this.
     //
@@ -78,9 +80,11 @@ pub fn dtd(input: TokenStream) -> TokenStream {
         }
     }
     */
-    let parsed = match definitions_or_path {
-        DefinetionsOrPath::Definetions(definitions) => dtd_parser::parse_str(&definitions),
-        DefinetionsOrPath::Path(path) => {
+    let (parsing, span) = match definitions_or_path {
+        DefinitionsOrPath::Definetions(definitions) => {
+            (parser::parse_str(&definitions.value()), definitions)
+        }
+        DefinitionsOrPath::Path(path) => {
             let value = path.value();
             if !value.ends_with(".dtd") {
                 path.span()
@@ -103,9 +107,34 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                     .emit();
                 return TokenStream::new();
             }
-            dtd_parser::parse(pathbuf)
+            (parser::parse(pathbuf), path)
         }
     };
+
+    let definitions = match parsing {
+        Ok(definitions) => definitions,
+        Err(err) => {
+            span.span().unwrap().error(&err).emit();
+            return TokenStream::new();
+        }
+    };
+
+    for definition in definitions.into_iter() {
+        match definition {
+            parser::ElementType::Element(element) => {
+                dbg!(&element);
+            }
+            parser::ElementType::Entity(entity) => {
+                // dbg!(&entity);
+            }
+            parser::ElementType::Attlist(attlist) => {
+                dbg!(&attlist);
+            }
+            parser::ElementType::Comment(_) => {
+                //
+            }
+        }
+    }
 
     /*
     let expanded = quote! {
@@ -132,12 +161,4 @@ pub fn dtd(input: TokenStream) -> TokenStream {
 
     // TokenStream::from(expanded)
     TokenStream::new()
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn from_path() {
-        assert_eq!(2 + 2, 4);
-    }
 }

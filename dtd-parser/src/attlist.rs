@@ -6,8 +6,9 @@ use nom::{
     multi::{many0, separated_list1},
     sequence::{delimited, pair, tuple},
 };
+use nom_tracable::tracable_parser;
 
-use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Repeatable, Result};
+use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Repeatable, Result, Span};
 
 /// 属性可提供有关元素的额外信息。
 ///
@@ -19,7 +20,8 @@ pub struct AttlistDecl {
 }
 
 /// AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
-pub(super) fn attlist_decl(i: &str) -> nom::IResult<&str, AttlistDecl> {
+#[tracable_parser]
+pub(super) fn attlist_decl(i: Span) -> Result<AttlistDecl> {
     map(
         // dbg_dmp(
         tuple((
@@ -47,7 +49,7 @@ pub struct AttDef {
 }
 
 /// AttDef ::= S Name S AttType S DefaultDecl
-fn attdef(i: &str) -> nom::IResult<&str, AttDef> {
+fn attdef(i: Span) -> Result<AttDef> {
     map(
         tuple((
             multispace1,
@@ -90,7 +92,7 @@ pub enum TokenizedType {
 }
 
 ///      StringType         ::=     'CDATA'
-fn string_type(i: &str) -> nom::IResult<&str, AttType> {
+fn string_type(i: Span) -> Result<AttType> {
     map(tag("CDATA"), |_| AttType::StringType)(i)
 }
 
@@ -103,7 +105,7 @@ fn string_type(i: &str) -> nom::IResult<&str, AttType> {
 ///                                 | 'ENTITIES'    [VC: Entity Name]
 ///                                 | 'NMTOKEN'     [VC: Name Token]
 ///                                 | 'NMTOKENS'    [VC: Name Token]]
-fn tokenized_type(i: &str) -> Result<AttType> {
+fn tokenized_type(i: Span) -> Result<AttType> {
     map(
         alt((
             tag("ID"),
@@ -114,7 +116,7 @@ fn tokenized_type(i: &str) -> Result<AttType> {
             tag("NMTOKEN"),
             tag("NMTOKENS"),
         )),
-        |ty| match ty {
+        |ty: Span| match *ty {
             "ID" => AttType::TokenizedType(TokenizedType::ID),
             "IDREF" => AttType::TokenizedType(TokenizedType::IDREF),
             "IDREFS" => AttType::TokenizedType(TokenizedType::IDREFS),
@@ -128,7 +130,7 @@ fn tokenized_type(i: &str) -> Result<AttType> {
 }
 
 /// AttType            ::=     StringType | TokenizedType | EnumeratedType
-fn atttype(i: &str) -> Result<AttType> {
+fn atttype(i: Span) -> Result<AttType> {
     alt((
         /* dbg_dmp( */ string_type, // "atttype string_type"),
         /* dbg_dmp( */ tokenized_type, // "atttype tokenized_type"),
@@ -147,7 +149,7 @@ pub enum EnumeratedType {
 }
 
 /// EnumeratedType ::= NotationType | Enumeration
-fn enumerated_type(i: &str) -> Result<EnumeratedType> {
+fn enumerated_type(i: Span) -> Result<EnumeratedType> {
     alt((
         map(notation_type, EnumeratedType::NotationType),
         map(enumeration, EnumeratedType::Enumeration),
@@ -161,7 +163,7 @@ fn enumerated_type(i: &str) -> Result<EnumeratedType> {
 #[derive(Debug)]
 pub struct NotationType(Vec<Name>);
 
-fn notation_type(i: &str) -> Result<NotationType> {
+fn notation_type(i: Span) -> Result<NotationType> {
     map(
         tuple((
             tag("NOTATION"),
@@ -183,7 +185,7 @@ pub struct Enumeration(Vec<Nmtoken>);
 
 /// Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'         [VC: Enumeration]
 ///                                                                       [VC: No Duplicate Tokens]
-fn enumeration(i: &str) -> Result<Enumeration> {
+fn enumeration(i: Span) -> Result<Enumeration> {
     map(
         tuple((
             tag("("),
@@ -217,7 +219,7 @@ pub enum DefaultDecl {
 ///           type    (bullets|ordered|glossary)  "ordered">
 /// <!ATTLIST form
 ///           method  CDATA   #FIXED "POST">
-fn default_decl(i: &str) -> Result<DefaultDecl> {
+fn default_decl(i: Span) -> Result<DefaultDecl> {
     alt((
         map(tag("#REQUIRED"), |_| DefaultDecl::Required),
         map(tag("#IMPLIED"), |_| DefaultDecl::Implied),
@@ -248,13 +250,13 @@ pub struct Value(String);
 
 /// AttValue ::= '"' ([^<&"] | Reference)* '"'
 ///              |  "'" ([^<&'] | Reference)* "'"
-fn att_value(i: &str) -> Result<AttValue> {
+fn att_value(i: Span) -> Result<AttValue> {
     map(
         alt((
             delimited(
                 char('"'),
                 many0(alt((
-                    map(is_not("<&\""), |v: &str| {
+                    map(is_not("<&\""), |v: Span| {
                         ValueOrReference::Value(Value(v.to_string()))
                     }),
                     map(reference, |r| ValueOrReference::Reference(r)),
@@ -264,7 +266,7 @@ fn att_value(i: &str) -> Result<AttValue> {
             delimited(
                 char('\''),
                 many0(alt((
-                    map(is_not("<&'"), |v: &str| {
+                    map(is_not("<&'"), |v: Span| {
                         ValueOrReference::Value(Value(v.to_string()))
                     }),
                     map(reference, |r| ValueOrReference::Reference(r)),

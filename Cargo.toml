@@ -18,6 +18,8 @@ dtd-macro = { version = "0.1.0-alpha2", path = "./dtd-macro" }
 dtd-parser = { version = "0.1.0-alpha2", path = "./dtd-parser" }
 
 [features]
+default = []
+trace   = ["dtd-parser/trace"]
 
 [workspace]
 members = [ "dtd-macro", "dtd-parser" ]
