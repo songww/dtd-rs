@@ -8,12 +8,13 @@ use indexmap::IndexMap;
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, tag, take_till, take_until, take_while, take_while_m_n};
 use nom::character::complete::{anychar, char, multispace0, multispace1};
-use nom::combinator::{iterator, map, recognize, value};
+use nom::combinator::{eof, iterator, map, recognize, value};
+use nom::error::ErrorKind;
 use nom::multi::{many0, separated_list1};
-use nom::sequence::{delimited, pair, tuple};
+use nom::sequence::{delimited, pair, terminated, tuple};
 use nom::Finish;
 use nom_greedyerror::{error_position, GreedyError, Position};
-use nom_locate::{position, LocatedSpan};
+use nom_locate::LocatedSpan;
 use nom_tracable::{cumulative_histogram, histogram, tracable_parser, TracableInfo};
 
 mod attlist;
@@ -22,7 +23,7 @@ mod entity;
 
 type Span<'i> = LocatedSpan<&'i str, TracableInfo>;
 
-type Result<'i, T> = nom::IResult<Span<'i>, T>;
+type Result<'i, T> = nom::IResult<Span<'i>, T, GreedyError<Span<'i>, ErrorKind>>;
 
 #[cfg(test)]
 fn span(i: &str) -> Span {
@@ -468,28 +469,36 @@ pub fn parse<F: AsRef<Path>>(f: F) -> std::result::Result<Vec<ElementType>, Stri
     let span = LocatedSpan::new_extra(content.as_str(), tracer);
 
     let definitions = resolve_entity_definitions::<&Path, Option<&Path>>(span, f.into());
+    let span = LocatedSpan::new_extra(content.as_str(), tracer);
     let resolved = resolve_references(span, &definitions);
     // println!("resolved -----------------------------\n{}", &resolved);
-    // std::fs::write("/tmp/resolved.dtd", &resolved).unwrap();
+    std::fs::write("/tmp/resolved.dtd", &resolved).unwrap();
     let span = LocatedSpan::new_extra(resolved.as_str(), tracer);
-    let result = many0(alt((
-        map(
-            delimited(multispace0, attlist::attlist_decl, multispace0),
-            ElementType::Attlist,
-        ),
-        map(
-            delimited(multispace0, element::element_decl, multispace0),
-            ElementType::Element,
-        ),
-        map(
-            delimited(multispace0, entity::entity_decl, multispace0),
-            ElementType::Entity,
-        ),
-        map(
-            delimited(multispace0, comment_decl, multispace0),
-            ElementType::Comment,
-        ),
-    )))(span)
+    #[cfg(feature = "trace")]
+    histogram();
+    #[cfg(feature = "trace")]
+    cumulative_histogram();
+    let result = terminated(
+        many0(alt((
+            map(
+                delimited(multispace0, attlist::attlist_decl, multispace0),
+                ElementType::Attlist,
+            ),
+            map(
+                delimited(multispace0, element::element_decl, multispace0),
+                ElementType::Element,
+            ),
+            map(
+                delimited(multispace0, entity::entity_decl, multispace0),
+                ElementType::Entity,
+            ),
+            map(
+                delimited(multispace0, comment_decl, multispace0),
+                ElementType::Comment,
+            ),
+        ))),
+        eof,
+    )(span)
     .finish()
     .map(|(_, definitions)| definitions)
     .map_err(|err| format!("{:?}", err));
@@ -500,29 +509,37 @@ pub fn parse_str(i: &str) -> std::result::Result<Vec<ElementType>, String> {
     let tracer = TracableInfo::new().fold("entity-resolver");
     let span = LocatedSpan::new_extra(i, tracer);
     let definitions = resolve_entity_definitions::<&str, Option<&str>>(span, None);
+    let span = LocatedSpan::new_extra(i, tracer);
     let resolved = resolve_references(span, &definitions);
     let span = LocatedSpan::new_extra(resolved.as_str(), tracer);
-    let result = many0(alt((
-        map(
-            delimited(multispace0, attlist::attlist_decl, multispace0),
-            ElementType::Attlist,
-        ),
-        map(
-            delimited(multispace0, element::element_decl, multispace0),
-            ElementType::Element,
-        ),
-        map(
-            delimited(multispace0, entity::entity_decl, multispace0),
-            ElementType::Entity,
-        ),
-        map(
-            delimited(multispace0, comment_decl, multispace0),
-            ElementType::Comment,
-        ),
-    )))(span)
+    #[cfg(feature = "trace")]
+    histogram();
+    #[cfg(feature = "trace")]
+    cumulative_histogram();
+    let result = terminated(
+        many0(alt((
+            map(
+                delimited(multispace0, attlist::attlist_decl, multispace0),
+                ElementType::Attlist,
+            ),
+            map(
+                delimited(multispace0, element::element_decl, multispace0),
+                ElementType::Element,
+            ),
+            map(
+                delimited(multispace0, entity::entity_decl, multispace0),
+                ElementType::Entity,
+            ),
+            map(
+                delimited(multispace0, comment_decl, multispace0),
+                ElementType::Comment,
+            ),
+        ))),
+        eof,
+    )(span)
     .finish()
     .map(|(_, elements)| elements)
-    .map_err(|err| err.to_string());
+    .map_err(|err| format!("{:?}", err));
     result
 }
 
@@ -557,20 +574,12 @@ The formal public identifier for this DTD is::
 -->"#,
         ))
         .finish();
-        assert!(
-            result.is_ok(),
-            "{}",
-            result.as_ref().unwrap_err().to_string()
-        );
+        assert!(result.is_ok(), "{:?}", result.as_ref().unwrap_err());
     }
 
     #[test]
     fn test_pereference() {
         let result = pereference(span("%align-h.att;")).finish();
-        assert!(
-            result.is_ok(),
-            "{}",
-            result.as_ref().unwrap_err().to_string()
-        );
+        assert!(result.is_ok(), "{:?}", result.as_ref().unwrap_err());
     }
 }

@@ -71,9 +71,11 @@ fn entity_value(i: Span) -> Result<EntityValue> {
     )(i)
 }
 
-#[derive(Debug, TryInto)]
+#[derive(Debug, Display, TryInto)]
 pub enum EntityDecl {
+    #[display(fmt = "<ENTITY {}>", "_0")]
     GEDecl(GEDecl),
+    #[display(fmt = "<ENTITY % {}>", "_0")]
     PEDecl(PEDecl),
 }
 // EntityDecl ::= GEDecl | PEDecl
@@ -218,7 +220,7 @@ mod tests {
  specification.">"#,
         ))
         .finish();
-        assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
+        assert!(decl.is_ok(), "{:?}", decl.as_ref().unwrap_err());
     }
 
     #[test]
@@ -228,21 +230,21 @@ mod tests {
          SYSTEM "http://www.textuality.com/boilerplate/OpenHatch.xml">"#,
         ))
         .finish();
-        assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
+        assert!(decl.is_ok(), "{:?}", decl.as_ref().unwrap_err());
         let decl = entity_decl(span(
             r#"<!ENTITY open-hatch
          PUBLIC "-//Textuality//TEXT Standard open-hatch boilerplate//EN"
          "http://www.textuality.com/boilerplate/OpenHatch.xml">"#,
         ))
         .finish();
-        assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
+        assert!(decl.is_ok(), "{:?}", decl.as_ref().unwrap_err());
         let decl = entity_decl(span(
             r#"<!ENTITY hatch-pic
          SYSTEM "../grafix/OpenHatch.gif"
          NDATA gif >"#,
         ))
         .finish();
-        assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
+        assert!(decl.is_ok(), "{:?}", decl.as_ref().unwrap_err());
     }
 
     #[test]
@@ -257,11 +259,7 @@ mod tests {
     %additional.basic.atts; ">"#,
         ))
         .finish();
-        assert!(
-            result.is_ok(),
-            "{}",
-            result.as_ref().unwrap_err().to_string()
-        );
+        assert!(result.is_ok(), "{:?}", result.as_ref().unwrap_err());
         dbg!(result.unwrap());
     }
 
@@ -273,11 +271,7 @@ mod tests {
     "soextblx.dtd">"#,
         ))
         .finish();
-        assert!(
-            result.is_ok(),
-            "{}",
-            result.as_ref().unwrap_err().to_string()
-        );
+        assert!(result.is_ok(), "{:?}", result.as_ref().unwrap_err());
         dbg!(result.unwrap());
     }
 }

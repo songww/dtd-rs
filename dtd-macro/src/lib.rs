@@ -119,16 +119,18 @@ pub fn dtd(input: TokenStream) -> TokenStream {
         }
     };
 
-    for definition in definitions.into_iter() {
+    println!("{} definitions found.", definitions.len());
+    for (idx, definition) in definitions.into_iter().enumerate() {
         match definition {
             parser::ElementType::Element(element) => {
-                dbg!(&element);
+                dbg!(idx, &element);
             }
             parser::ElementType::Entity(entity) => {
-                // dbg!(&entity);
+                dbg!(idx);
+                println!("[dtd-macro/src/lib.rs:131] &entity = {}", entity);
             }
             parser::ElementType::Attlist(attlist) => {
-                dbg!(&attlist);
+                dbg!(idx, &attlist);
             }
             parser::ElementType::Comment(_) => {
                 //
@@ -160,5 +162,7 @@ pub fn dtd(input: TokenStream) -> TokenStream {
     */
 
     // TokenStream::from(expanded)
-    TokenStream::new()
+    TokenStream::from(quote! {
+        ""
+    })
 }

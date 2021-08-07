@@ -249,20 +249,20 @@ pub(super) fn element_decl(i: Span) -> Result<ElementDecl> {
 mod tests {
 
     use super::{children, element_decl};
-    use crate::{span, Span};
+    use crate::span;
     use nom::Finish;
 
     #[test]
     fn test_element_decl() {
         let el = element_decl(span("<!ELEMENT b (#PCDATA)>")).finish();
-        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
         let el = element_decl(span("<!ELEMENT p (#PCDATA|a|ul|b|i|em)*>")).finish();
-        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
         let el = element_decl(span(
             "<!ELEMENT p (#PCDATA | %font; | %phrase; | %special; | %form;)* >",
         ))
         .finish();
-        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
     }
 
     #[test]
@@ -276,7 +276,7 @@ mod tests {
     | target | image | raw
         )* >"#,
         ));
-        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
     }
 
     #[test]
@@ -301,11 +301,12 @@ mod tests {
         ), (transition?, (  section
         ) )* )? ) )>"#,
         ));
-        assert!(el.is_ok(), "{}", el.as_ref().unwrap_err().to_string());
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
     }
 
     #[test]
     fn test_child() {
-        dbg!(children(span("(title, subtitle?)?")));
+        let el = children(span("(title, subtitle?)?"));
+        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
     }
 }
