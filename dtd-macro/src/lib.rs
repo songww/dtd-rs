@@ -96,7 +96,16 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                     .emit();
                 return TokenStream::new();
             }
-            let pathbuf = std::path::PathBuf::from(value);
+            let pathbuf = match std::path::PathBuf::from(value).canonicalize() {
+                Ok(absolute) => absolute,
+                Err(err) => {
+                    path.span()
+                        .unwrap()
+                        .error(&format!("invald dtd file path: `{}`.", err))
+                        .emit();
+                    return TokenStream::new();
+                }
+            };
             if !pathbuf.exists() {
                 path.span()
                     .unwrap()
@@ -125,12 +134,11 @@ pub fn dtd(input: TokenStream) -> TokenStream {
             parser::ElementType::Element(element) => {
                 dbg!(idx, &element);
             }
-            parser::ElementType::Entity(entity) => {
-                dbg!(idx);
-                println!("[dtd-macro/src/lib.rs:131] &entity = {}", entity);
+            parser::ElementType::Entity(_entity) => {
+                // println!("[dtd-macro/src/lib.rs:131] &entity = {}", entity);
             }
-            parser::ElementType::Attlist(attlist) => {
-                dbg!(idx, &attlist);
+            parser::ElementType::Attlist(_attlist) => {
+                // dbg!(idx, &attlist);
             }
             parser::ElementType::Comment(_) => {
                 //

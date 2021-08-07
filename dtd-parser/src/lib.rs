@@ -409,13 +409,16 @@ pub fn resolve_entity_definitions<P: AsRef<Path>, I: Into<Option<P>>>(
                     let include = if let Some(ref path) = path {
                         let path: &Path = path.as_ref();
                         if let Some(_ext) = path.extension() {
-                            path.with_file_name(system_literal.as_ref())
+                            path.canonicalize()
+                                .unwrap()
+                                .with_file_name(system_literal.as_ref())
                         } else {
-                            path.join(system_literal.as_ref())
+                            path.canonicalize().unwrap().join(system_literal.as_ref())
                         }
                     } else {
                         PathBuf::from(system_literal.as_ref())
                     };
+                    // FIXME: this is still not defined.
                     match std::fs::read_to_string(&include) {
                         Err(err) => {
                             eprintln!(
