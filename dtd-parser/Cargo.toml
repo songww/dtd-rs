@@ -1,5 +1,5 @@
 [package]
-name = "dtd-rs"
+name = "dtd-parser"
 version = "0.1.0-alpha2"
 edition = "2018"
 authors = ["songww <sww4718168@163.com>"]
@@ -10,14 +10,9 @@ keywords = ["dtd", "xml", "document", "type", "definition"]
 license = "MIT OR Apache-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[lib]
-name = "dtd"
 
 [dependencies]
-dtd-macro = { version = "0.1.0-alpha2", path = "./dtd-macro" }
-dtd-parser = { version = "0.1.0-alpha2", path = "./dtd-parser" }
-
-[features]
-
-[workspace]
-members = [ "dtd-macro", "dtd-parser" ]
+derive_more = { version = "0.99", features = [ "as_ref", "as_mut", "deref", "deref_mut",  "from", "into", "into_iterator", "iterator", "try_into", "display" ] }
+either = "1.6"
+indexmap = { version = "1.7", features = ["std"] }
+nom = "6"

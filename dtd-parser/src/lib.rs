@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate derive_more;
+
 use std::path::{Path, PathBuf};
 
 use either::Either;
@@ -410,7 +413,6 @@ pub fn resolve_entity_definitions<P: AsRef<Path>, I: Into<Option<P>>>(
             }
         }
     }
-    // dbg!(&definitions);
     definitions
 }
 

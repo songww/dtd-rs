@@ -58,14 +58,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "dtd-macro"
+version = "0.1.0-alpha2"
+dependencies = [
+ "dtd-parser",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "dtd-parser"
-version = "0.1.0-alpha1"
+version = "0.1.0-alpha2"
 dependencies = [
  "derive_more",
  "either",
  "indexmap",
  "nom",
- "syn",
+]
+
+[[package]]
+name = "dtd-rs"
+version = "0.1.0-alpha2"
+dependencies = [
+ "dtd-macro",
+ "dtd-parser",
 ]
 
 [[package]]

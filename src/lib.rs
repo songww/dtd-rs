@@ -1,4 +1,3 @@
-#[macro_use]
-extern crate derive_more;
+pub use dtd_parser as parser;
 
-pub mod parser;
+pub use dtd_macro::dtd;
