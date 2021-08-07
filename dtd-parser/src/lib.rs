@@ -13,9 +13,11 @@ use nom::error::ErrorKind;
 use nom::multi::{many0, separated_list1};
 use nom::sequence::{delimited, pair, terminated, tuple};
 use nom::Finish;
-use nom_greedyerror::{error_position, GreedyError, Position};
+use nom_greedyerror::{convert_error, GreedyError};
 use nom_locate::LocatedSpan;
-use nom_tracable::{cumulative_histogram, histogram, tracable_parser, TracableInfo};
+#[cfg(feature = "trace")]
+use nom_tracable::{cumulative_histogram, histogram};
+use nom_tracable::{tracable_parser, TracableInfo};
 
 mod attlist;
 mod element;
@@ -501,7 +503,7 @@ pub fn parse<F: AsRef<Path>>(f: F) -> std::result::Result<Vec<ElementType>, Stri
     )(span)
     .finish()
     .map(|(_, definitions)| definitions)
-    .map_err(|err| format!("{:?}", err));
+    .map_err(|err| convert_error(span, err));
     result
 }
 
@@ -539,7 +541,7 @@ pub fn parse_str(i: &str) -> std::result::Result<Vec<ElementType>, String> {
     )(span)
     .finish()
     .map(|(_, elements)| elements)
-    .map_err(|err| format!("{:?}", err));
+    .map_err(|err| convert_error(span, err));
     result
 }
 
