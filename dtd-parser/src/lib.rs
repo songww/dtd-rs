@@ -7,9 +7,9 @@ use either::Either;
 use indexmap::IndexMap;
 use nom::branch::alt;
 use nom::bytes::complete::{is_a, tag, take_till, take_until, take_while, take_while_m_n};
-use nom::character::complete::{anychar, char, multispace0, space1};
+use nom::character::complete::{anychar, char, multispace0, multispace1};
 use nom::combinator::{iterator, map, recognize, value};
-use nom::multi::{many0, many1, separated_list1};
+use nom::multi::{many0, separated_list1};
 use nom::sequence::{delimited, pair, tuple};
 use nom::Finish;
 use nom_greedyerror::{error_position, GreedyError, Position};
@@ -23,6 +23,12 @@ mod entity;
 type Span<'i> = LocatedSpan<&'i str, TracableInfo>;
 
 type Result<'i, T> = nom::IResult<Span<'i>, T>;
+
+#[cfg(test)]
+fn span(i: &str) -> Span {
+    let extra = TracableInfo::new();
+    Span::new_extra(i, extra)
+}
 
 /// like nom::dbg_dmp but eat &str.
 fn dbg_dmp<'i, F, O, E: std::fmt::Debug>(
@@ -59,6 +65,9 @@ pub struct CDATA(String);
 /// How namy accurrences of child.
 #[derive(Debug, Display)]
 pub enum Repeatable<T> {
+    /// Occur once.
+    #[display(fmt = "{}+", "_0")]
+    Once(T),
     /// Occur once or more times.
     #[display(fmt = "{}+", "_0")]
     AtLeastOnce(T),
@@ -167,6 +176,7 @@ fn is_name_char(c: char) -> bool {
         || is_name_start(c)
 }
 
+#[tracable_parser]
 fn name(i: Span) -> Result<Name> {
     map(
         recognize(pair(
@@ -196,7 +206,7 @@ pub struct Nmtokens(Vec<Nmtoken>);
 ///      Nmtokens ::= Nmtoken (#x20 Nmtoken)*
 #[tracable_parser]
 fn nmtokens(i: Span) -> Result<Vec<Nmtoken>> {
-    separated_list1(space1, nmtoken)(i)
+    separated_list1(multispace1, nmtoken)(i)
 }
 
 #[derive(Debug, AsMut, AsRef, Deref, DerefMut, Into)]
@@ -208,10 +218,12 @@ pub enum NameOrReference {
     Reference(PEReference),
 }
 
+#[tracable_parser]
 fn map_name(i: Span) -> Result<NameOrReference> {
     map(name, |n| NameOrReference::Name(n))(i)
 }
 
+#[tracable_parser]
 fn map_pereference(i: Span) -> Result<NameOrReference> {
     map(pereference, |n| NameOrReference::Reference(n))(i)
 }
@@ -361,7 +373,7 @@ pub fn resolve_entity_definitions<P: AsRef<Path>, I: Into<Option<P>>>(
                                 Some(def) => def.to_owned(),
                                 None => {
                                     eprintln!(
-                                        "WARNING: PEReference(`{}`) is not defined yet.",
+                                        "ERROR: PEReference(`{}`) is not defined yet.",
                                         pereference
                                     );
                                     continue;
@@ -434,11 +446,17 @@ pub fn resolve_references(i: Span, definitions: &IndexMap<String, String>) -> St
         )),
     )
     .map(|either| match either {
-        Either::Left(name) => definitions.get(name.as_ref()).unwrap().as_str(),
+        Either::Left(name) => match definitions.get(name.as_ref()) {
+            Some(definition) => definition.as_str(),
+            None => {
+                eprintln!("ERROR: PEReference(`{}`) is not defined yet.", &name);
+                ""
+            }
+        },
         Either::Right(chars) => *chars,
     })
     .collect::<Vec<_>>()
-    .join(" ")
+    .join("")
 }
 
 pub fn parse<F: AsRef<Path>>(f: F) -> std::result::Result<Vec<ElementType>, String> {
@@ -446,13 +464,13 @@ pub fn parse<F: AsRef<Path>>(f: F) -> std::result::Result<Vec<ElementType>, Stri
     let content =
         std::fs::read_to_string(f).expect(&format!("Can not read from file {}", f.display()));
 
-    let tracer = TracableInfo::new().parser_width(64).fold("entity-resolver");
+    let tracer = TracableInfo::new().fold("entity-resolver");
     let span = LocatedSpan::new_extra(content.as_str(), tracer);
 
     let definitions = resolve_entity_definitions::<&Path, Option<&Path>>(span, f.into());
     let resolved = resolve_references(span, &definitions);
-    println!("resolved -----------------------------\n{}", &resolved);
-    let tracer = TracableInfo::new().parser_width(64).fold("parse");
+    // println!("resolved -----------------------------\n{}", &resolved);
+    // std::fs::write("/tmp/resolved.dtd", &resolved).unwrap();
     let span = LocatedSpan::new_extra(resolved.as_str(), tracer);
     let result = many0(alt((
         map(
@@ -474,16 +492,15 @@ pub fn parse<F: AsRef<Path>>(f: F) -> std::result::Result<Vec<ElementType>, Stri
     )))(span)
     .finish()
     .map(|(_, definitions)| definitions)
-    .map_err(|err| err.to_string());
+    .map_err(|err| format!("{:?}", err));
     result
 }
 
 pub fn parse_str(i: &str) -> std::result::Result<Vec<ElementType>, String> {
-    let tracer = TracableInfo::new().parser_width(64).fold("entity-resolver");
+    let tracer = TracableInfo::new().fold("entity-resolver");
     let span = LocatedSpan::new_extra(i, tracer);
     let definitions = resolve_entity_definitions::<&str, Option<&str>>(span, None);
     let resolved = resolve_references(span, &definitions);
-    let tracer = TracableInfo::new().parser_width(64).fold("parse");
     let span = LocatedSpan::new_extra(resolved.as_str(), tracer);
     let result = many0(alt((
         map(
@@ -513,11 +530,11 @@ pub fn parse_str(i: &str) -> std::result::Result<Vec<ElementType>, String> {
 mod tests {
     use nom::Finish;
 
-    use super::{comment_decl, pereference};
+    use super::{comment_decl, pereference, span};
 
     #[test]
     fn test_comment_decl() {
-        let result = comment_decl(
+        let result = comment_decl(span(
             r#"<!--
 ======================================================================
     Docutils Generic DTD
@@ -538,7 +555,7 @@ The formal public identifier for this DTD is::
 
     +//IDN docutils.sourceforge.net//DTD Docutils Generic//EN//XML
 -->"#,
-        )
+        ))
         .finish();
         assert!(
             result.is_ok(),
@@ -549,7 +566,7 @@ The formal public identifier for this DTD is::
 
     #[test]
     fn test_pereference() {
-        let result = pereference("%align-h.att;").finish();
+        let result = pereference(span("%align-h.att;")).finish();
         assert!(
             result.is_ok(),
             "{}",

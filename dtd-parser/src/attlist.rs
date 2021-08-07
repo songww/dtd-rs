@@ -283,17 +283,18 @@ mod tests {
     use nom::Finish;
 
     use super::attlist_decl;
+    use crate::span;
 
     // <!ATTLIST termdef
     //           id      ID      #REQUIRED
     //           name    CDATA   #IMPLIED>
     #[test]
     fn test_att_list_1() {
-        let attlist = attlist_decl(
+        let attlist = attlist_decl(span(
             r#"<!ATTLIST termdef
              id      ID      #REQUIRED
              name    CDATA   #IMPLIED>"#,
-        )
+        ))
         .finish();
         assert!(
             attlist.is_ok(),
@@ -305,10 +306,10 @@ mod tests {
     //           type    (bullets|ordered|glossary)  "ordered">
     #[test]
     fn test_att_list_2() {
-        let attlist = attlist_decl(
+        let attlist = attlist_decl(span(
             r#"<!ATTLIST list
              type    (bullets|ordered|glossary)  "ordered">"#,
-        )
+        ))
         .finish();
         assert!(
             attlist.is_ok(),
@@ -320,10 +321,10 @@ mod tests {
     //           method  CDATA   #FIXED "POST">
     #[test]
     fn test_att_list_3() {
-        let attlist = attlist_decl(
+        let attlist = attlist_decl(span(
             r#"<!ATTLIST form
              method  CDATA   #FIXED "POST">"#,
-        )
+        ))
         .finish();
         assert!(
             attlist.is_ok(),

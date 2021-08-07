@@ -207,45 +207,47 @@ fn ndata_decl(i: Span) -> Result<NDataDecl> {
 mod tests {
     use nom::Finish;
 
+    use crate::span;
+
     use super::entity_decl;
 
     #[test]
     fn test_internal_entity_parse() {
-        let decl = entity_decl(
+        let decl = entity_decl(span(
             r#"<!ENTITY Pub-Status "This is a pre-release of the
  specification.">"#,
-        )
+        ))
         .finish();
         assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
     }
 
     #[test]
     fn test_external_entity_parse() {
-        let decl = entity_decl(
+        let decl = entity_decl(span(
             r#"<!ENTITY open-hatch
          SYSTEM "http://www.textuality.com/boilerplate/OpenHatch.xml">"#,
-        )
+        ))
         .finish();
         assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
-        let decl = entity_decl(
+        let decl = entity_decl(span(
             r#"<!ENTITY open-hatch
          PUBLIC "-//Textuality//TEXT Standard open-hatch boilerplate//EN"
          "http://www.textuality.com/boilerplate/OpenHatch.xml">"#,
-        )
+        ))
         .finish();
         assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
-        let decl = entity_decl(
+        let decl = entity_decl(span(
             r#"<!ENTITY hatch-pic
          SYSTEM "../grafix/OpenHatch.gif"
          NDATA gif >"#,
-        )
+        ))
         .finish();
         assert!(decl.is_ok(), "{}", decl.as_ref().unwrap_err().to_string());
     }
 
     #[test]
     fn test_entity_multiline() {
-        let result = entity_decl(
+        let result = entity_decl(span(
             r#"<!ENTITY % basic.atts
   " ids       %ids.type;         #IMPLIED
     names     %refnames.type;    #IMPLIED
@@ -253,7 +255,7 @@ mod tests {
     source    CDATA              #IMPLIED
     classes   %classnames.type;  #IMPLIED
     %additional.basic.atts; ">"#,
-        )
+        ))
         .finish();
         assert!(
             result.is_ok(),
@@ -265,11 +267,11 @@ mod tests {
 
     #[test]
     fn test_external_entity_parse_2() {
-        let result = entity_decl(
+        let result = entity_decl(span(
             r#"<!ENTITY % calstblx PUBLIC
     "-//OASIS//DTD XML Exchange Table Model 19990315//EN"
     "soextblx.dtd">"#,
-        )
+        ))
         .finish();
         assert!(
             result.is_ok(),

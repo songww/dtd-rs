@@ -12,6 +12,7 @@ fn test_docutils_parse_file() {
     // assert!(elements.len() > 0);
 }
 
+/*
 #[test]
 fn test_docutils_parse_str() {
     let parsed = dtd!(
@@ -38,3 +39,4 @@ fn test_docutils_parse_str_element() {
     // let elements = parsed.unwrap();
     // assert!(elements.len() > 0);
 }
+*/
