@@ -23,6 +23,8 @@ mod attlist;
 mod element;
 mod entity;
 
+pub use element::{Child, Choices, ElementCategory, ElementDecl, Seq};
+
 type Span<'i> = LocatedSpan<&'i str, TracableInfo>;
 
 type Result<'i, T> = nom::IResult<Span<'i>, T, GreedyError<Span<'i>, ErrorKind>>;
@@ -213,7 +215,7 @@ fn nmtokens(i: Span) -> Result<Vec<Nmtoken>> {
 }
 
 #[derive(Debug, AsMut, AsRef, Deref, DerefMut, Into)]
-pub struct MixedPCDATA(Vec<NameOrReference>);
+pub struct MixedPCDATA(pub Vec<Name>);
 
 #[derive(Debug, TryInto)]
 pub enum NameOrReference {
@@ -231,11 +233,10 @@ fn map_pereference(i: Span) -> Result<NameOrReference> {
     map(pereference, |n| NameOrReference::Reference(n))(i)
 }
 
-/*
-fn name_or_reference(i: &str) -> Result<NameOrReference> {
+#[tracable_parser]
+fn name_or_reference(i: Span) -> Result<NameOrReference> {
     alt((map_name, map_pereference))(i)
 }
-*/
 
 #[derive(Debug, Display, TryInto)]
 pub enum CharRef {

@@ -1,7 +1,12 @@
 #![feature(proc_macro_diagnostic)]
 
+use std::collections::HashMap;
+use std::iter::FromIterator;
+
+use inflector::Inflector;
 use proc_macro::TokenStream;
-use quote::{quote, quote_spanned};
+use proc_macro2::TokenStream as TokenStream2;
+use quote::{format_ident, quote, quote_spanned};
 use syn::parse::{Parse, ParseStream, Result};
 use syn::spanned::Spanned;
 use syn::{parse_macro_input, Expr, Ident, LitStr, Token, Type, Visibility};
@@ -128,11 +133,98 @@ pub fn dtd(input: TokenStream) -> TokenStream {
         }
     };
 
+    // let mut structs = HashMap::default();
+    let mut tokens = Vec::new();
+
     println!("{} definitions found.", definitions.len());
-    for (idx, definition) in definitions.into_iter().enumerate() {
+    for definition in definitions.into_iter().rev() {
         match definition {
             parser::ElementType::Element(element) => {
-                dbg!(idx, &element);
+                let struct_name = format_ident!("{}", element.name().to_class_case());
+                match element.category() {
+                    parser::ElementCategory::Empty => {
+                        tokens.push(quote! {
+                            #[derive(Clone, Debug)]
+                            struct #struct_name;
+                        });
+                    }
+                    parser::ElementCategory::PCDATA => {
+                        // String
+                        tokens.push(quote! {
+                            #[derive(Clone, Debug)]
+                            struct #struct_name(String);
+                        });
+                    }
+                    parser::ElementCategory::CDATA => {
+                        // String
+                        tokens.push(quote! {
+                            #[derive(Clone, Debug)]
+                            struct #struct_name(String);
+                        });
+                    }
+                    parser::ElementCategory::Any => {
+                        // Any?
+                        tokens.push(quote! {
+                            #[derive(Clone, Debug)]
+                            struct #struct_name(Box<dyn ::std::any::Any>);
+                        });
+                    }
+                    parser::ElementCategory::Mixed(repeatable) => {
+                        match repeatable {
+                            parser::Repeatable::Once(_) => {
+                                // No child, it is String.
+                                tokens.push(quote! {
+                                    #[derive(Clone, Debug)]
+                                    pub struct #struct_name(pub String);
+                                });
+                            }
+                            parser::Repeatable::ZeroOrManyTimes(parser::MixedPCDATA(names)) => {
+                                // Has child, Mixed with String.
+                                let variants = names.into_iter().map(|name| {
+                                    format_ident!(
+                                        "{}: Option<Vec<{}>>",
+                                        name.as_str(),
+                                        name.to_class_case()
+                                    )
+                                });
+                                tokens.push(quote! {
+                                    #[derive(Clone, Debug)]
+                                    pub struct #struct_name {
+                                        pcdata: Vec<String>,
+                                        #(#variants, )*
+                                    }
+                                });
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                    parser::ElementCategory::Children(children) => {
+                        match children {
+                            parser::Repeatable::Once(child) => {
+                                match child {
+                                    parser::Child::Name(name) => {
+                                        // struct
+                                    }
+                                    parser::Child::Seq(_) => {
+                                        // Tuple
+                                    }
+                                    parser::Child::Choices(_) => {
+                                        // Enum
+                                    }
+                                }
+                            }
+                            parser::Repeatable::AtMostOnce(child) => {
+                                //
+                            }
+                            parser::Repeatable::AtLeastOnce(child) => {
+                                //
+                            }
+                            parser::Repeatable::ZeroOrManyTimes(child) => {
+                                //
+                            }
+                        }
+                    }
+                }
             }
             parser::ElementType::Entity(_entity) => {
                 // println!("[dtd-macro/src/lib.rs:131] &entity = {}", entity);
@@ -170,7 +262,5 @@ pub fn dtd(input: TokenStream) -> TokenStream {
     */
 
     // TokenStream::from(expanded)
-    TokenStream::from(quote! {
-        ""
-    })
+    TokenStream2::from_iter(tokens.into_iter()).into()
 }

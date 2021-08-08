@@ -1,6 +1,8 @@
+use std::ops::Deref;
+
 use nom::{
     branch::alt,
-    bytes::complete::tag,
+    bytes::complete::{is_not, tag},
     character::complete::{multispace0, multispace1},
     combinator::{map, opt},
     multi::{many0, many1},
@@ -8,7 +10,7 @@ use nom::{
 };
 use nom_tracable::tracable_parser;
 
-use super::{map_name, map_pereference, name, MixedPCDATA, Name, Repeatable, Result, Span};
+use super::{name, MixedPCDATA, Name, Repeatable, Result, Span};
 
 /// 元素是 XML 以及 HTML 文档的主要构建模块。
 ///
@@ -21,13 +23,23 @@ pub struct ElementDecl {
     category: ElementCategory,
 }
 
+impl ElementDecl {
+    pub fn name(&self) -> &str {
+        self.name.deref()
+    }
+
+    pub fn category(&self) -> &ElementCategory {
+        &self.category
+    }
+}
+
 #[derive(Debug)]
 pub enum ElementCategory {
     Empty,
     PCDATA,
     CDATA,
     Any,
-    Mixed(MixedPCDATA),
+    Mixed(Repeatable<MixedPCDATA>),
     Children(Repeatable<Child>),
 }
 
@@ -45,27 +57,27 @@ fn parenthesis_close(i: Span) -> Result<Span> {
 /// 			| '(' S? '#PCDATA' S? ')'
 #[tracable_parser]
 fn mixed(i: Span) -> Result<ElementCategory> {
-    map(
-        tuple((
-            tuple((tag("("), multispace0, tag("#PCDATA"), multispace0)),
-            alt((
-                map(tuple((multispace0, tag(")"))), |_| MixedPCDATA(Vec::new())),
-                map(
-                    terminated(
-                        many0(tuple((
-                            multispace0,
-                            tag("|"),
-                            multispace0,
-                            alt((map_name, map_pereference)),
-                        ))),
-                        tuple((multispace0, tag(")*"))),
-                    ),
-                    |x| MixedPCDATA(x.into_iter().map(|(_, _, _, x)| x).collect()),
-                ),
+    alt((
+        map(
+            tuple((
+                tag("("),
+                multispace0,
+                tag("#PCDATA"),
+                multispace0,
+                tag(")"),
+                is_not("*"),
             )),
-        )),
-        |(_, x)| ElementCategory::Mixed(x),
-    )(i)
+            |_| ElementCategory::Mixed(Repeatable::Once(MixedPCDATA(Vec::new()))),
+        ),
+        map(
+            tuple((
+                tuple((tag("("), multispace0, tag("#PCDATA"), multispace0)),
+                many0(preceded(tuple((multispace0, tag("|"), multispace0)), name)),
+                tuple((multispace0, tag(")*"))),
+            )),
+            |(_, x, _)| ElementCategory::Mixed(Repeatable::ZeroOrManyTimes(MixedPCDATA(x))),
+        ),
+    ))(i)
 }
 
 #[derive(Debug)]

@@ -1,6 +1,6 @@
 [package]
 name = "dtd-rs"
-version = "0.1.0-alpha2"
+version = "0.1.0-alpha0"
 edition = "2018"
 authors = ["songww <sww4718168@163.com>"]
 description = "A DTD file parser."
@@ -8,14 +8,15 @@ documentation = "https://docs.rs/dtd-parser"
 homepage = "https://github.com/songww/dtd-rs"
 keywords = ["dtd", "xml", "document", "type", "definition"]
 license = "MIT OR Apache-2.0"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "dtd"
 
 [dependencies]
-dtd-macro = { version = "0.1.0-alpha2", path = "./dtd-macro" }
-dtd-parser = { version = "0.1.0-alpha2", path = "./dtd-parser" }
+dtd-macro = { version = "0.1.0-alpha1", path = "./dtd-macro" }
+dtd-parser = { version = "0.1.0-alpha3", path = "./dtd-parser" }
 
 [features]
 default = []
