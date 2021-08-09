@@ -8,15 +8,20 @@ use nom::{
 };
 use nom_tracable::tracable_parser;
 
-use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Repeatable, Result, Span};
+use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Result, Span};
 
 /// 属性可提供有关元素的额外信息。
 ///
 /// 属性总是被置于某元素的开始标签中。属性总是以名称/值的形式成对出现的。
-#[derive(Debug)]
+#[derive(Clone, Debug, Display)]
+#[display(
+    fmt = "<!ATTLIST {} {}>",
+    name,
+    "attdefs.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(\" \")"
+)]
 pub struct AttlistDecl {
     name: Name,
-    attdefs: Repeatable<Vec<AttDef>>,
+    attdefs: Vec<AttDef>,
 }
 
 /// AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
@@ -29,12 +34,13 @@ pub(super) fn attlist_decl(i: Span) -> Result<AttlistDecl> {
         )),
         |(name, attdefs)| AttlistDecl {
             name,
-            attdefs: Repeatable::ZeroOrManyTimes(attdefs),
+            attdefs: attdefs,
         },
     )(i)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Display)]
+#[display(fmt = "{} {} {}", name, atttype, default_decl)]
 pub struct AttDef {
     name: Name,
     atttype: AttType,
@@ -58,15 +64,18 @@ fn attdef(i: Span) -> Result<AttDef> {
     )(i)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Display)]
 pub enum AttType {
     /// StringType         ::=     'CDATA'
+    #[display(fmt = "CDATA")]
     StringType,
+    #[display(fmt = "{}", "_0")]
     TokenizedType(TokenizedType),
+    #[display(fmt = "{}", "_0")]
     EnumeratedType(EnumeratedType),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Display)]
 pub enum TokenizedType {
     ID,
     IDREF,
@@ -128,9 +137,11 @@ fn atttype(i: Span) -> Result<AttType> {
 }
 
 /// EnumeratedType ::= NotationType | Enumeration
-#[derive(Debug)]
+#[derive(Clone, Debug, Display)]
 pub enum EnumeratedType {
+    #[display(fmt = "NOTATION ({})*", "_0")]
     NotationType(NotationType),
+    #[display(fmt = "({})", "_0")]
     Enumeration(Enumeration),
 }
 
@@ -147,7 +158,11 @@ fn enumerated_type(i: Span) -> Result<EnumeratedType> {
 ///                                                                       [VC: One Notation Per Element Type]
 ///                                                                       [VC: No Notation on Empty Element]
 ///                                                                       [VC: No Duplicate Tokens]
-#[derive(Debug)]
+#[derive(Clone, Debug, Display)]
+#[display(
+    fmt = "{}",
+    "_0.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(\" | \")"
+)]
 pub struct NotationType(Vec<Name>);
 
 #[tracable_parser]
@@ -168,7 +183,11 @@ fn notation_type(i: Span) -> Result<NotationType> {
 
 /// Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'         [VC: Enumeration]
 ///                                                                       [VC: No Duplicate Tokens]
-#[derive(Debug)]
+#[derive(Clone, Debug, Display)]
+#[display(
+    fmt = "{}",
+    "_0.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(\" | \")"
+)]
 pub struct Enumeration(Vec<Nmtoken>);
 
 /// Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'         [VC: Enumeration]
@@ -187,11 +206,15 @@ fn enumeration(i: Span) -> Result<Enumeration> {
     )(i)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Display)]
 pub enum DefaultDecl {
+    #[display(fmt = "#REQUIRED")]
     Required,
+    #[display(fmt = "#IMPLIED")]
     Implied,
+    #[display(fmt = "#FIXED {}", "_0")]
     Fixed(AttValue),
+    #[display(fmt = "{}", "_0")]
     Default(AttValue),
 }
 /// DefaultDecl ::= '#REQUIRED' | '#IMPLIED'
@@ -226,16 +249,20 @@ fn default_decl(i: Span) -> Result<DefaultDecl> {
     ))(i)
 }
 
-#[derive(Debug)]
+#[derive(AsRef, AsMut, Clone, Debug, Display, Deref, DerefMut, IntoIterator)]
+#[display(
+    fmt = "{}",
+    "_0.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(\" \")"
+)]
 pub struct AttValue(Vec<ValueOrReference>);
 
-#[derive(Debug)]
+#[derive(Clone, Debug, Display)]
 pub enum ValueOrReference {
     Value(Value),
     Reference(Reference),
 }
 
-#[derive(Debug)]
+#[derive(AsRef, AsMut, Clone, Debug, Display, Deref, DerefMut)]
 pub struct Value(String);
 
 /// AttValue ::= '"' ([^<&"] | Reference)* '"'

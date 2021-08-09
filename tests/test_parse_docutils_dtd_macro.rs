@@ -2,14 +2,7 @@ use dtd_macro::dtd;
 
 #[test]
 fn test_docutils_parse_file() {
-    let parsed = dtd!("testdata/docutils.dtd");
-    // assert!(
-    //     parsed.is_ok(),
-    //     "{}",
-    //     parsed.as_ref().unwrap_err().to_string()
-    // );
-    // let elements = parsed.unwrap();
-    // assert!(elements.len() > 0);
+    dtd!("testdata/docutils.dtd");
 }
 
 /*
