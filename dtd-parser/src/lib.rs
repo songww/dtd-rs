@@ -23,6 +23,9 @@ mod attlist;
 mod element;
 mod entity;
 
+pub use attlist::{
+    AttDef, AttType, AttValue, AttlistDecl, DefaultDecl, EnumeratedType, Enumeration, NotationType,
+};
 pub use element::{Child, Choices, ElementCategory, ElementDecl, Seq};
 
 type Span<'i> = LocatedSpan<&'i str, TracableInfo>;

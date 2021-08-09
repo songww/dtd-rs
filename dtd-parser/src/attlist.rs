@@ -20,8 +20,8 @@ use super::{name, nmtoken, reference, Name, Nmtoken, Reference, Result, Span};
     "attdefs.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(\" \")"
 )]
 pub struct AttlistDecl {
-    name: Name,
-    attdefs: Vec<AttDef>,
+    pub name: Name,
+    pub attdefs: Vec<AttDef>,
 }
 
 /// AttlistDecl ::= '<!ATTLIST' S Name AttDef* S? '>'
@@ -42,9 +42,9 @@ pub(super) fn attlist_decl(i: Span) -> Result<AttlistDecl> {
 #[derive(Clone, Debug, Display)]
 #[display(fmt = "{} {} {}", name, atttype, default_decl)]
 pub struct AttDef {
-    name: Name,
-    atttype: AttType,
-    default_decl: DefaultDecl,
+    pub name: Name,
+    pub atttype: AttType,
+    pub default_decl: DefaultDecl,
 }
 
 /// AttDef ::= S Name S AttType S DefaultDecl
@@ -183,7 +183,7 @@ fn notation_type(i: Span) -> Result<NotationType> {
 
 /// Enumeration    ::= '(' S? Nmtoken (S? '|' S? Nmtoken)* S? ')'         [VC: Enumeration]
 ///                                                                       [VC: No Duplicate Tokens]
-#[derive(Clone, Debug, Display)]
+#[derive(AsRef, AsMut, Clone, Debug, Display, Deref, DerefMut, IntoIterator)]
 #[display(
     fmt = "{}",
     "_0.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(\" | \")"

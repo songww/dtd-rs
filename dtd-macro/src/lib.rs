@@ -247,10 +247,51 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                 }
             }
             parser::ElementType::Entity(_entity) => {
-                // println!("[dtd-macro/src/lib.rs:131] &entity = {}", entity);
+                //
             }
-            parser::ElementType::Attlist(_attlist) => {
-                // dbg!(idx, &attlist);
+            parser::ElementType::Attlist(attlist) => {
+                let attrname = format_ident!("{}Attributes", attlist.name.to_pascal_case());
+                let mut names: Vec<Ident> = Vec::new();
+                let mut types: Vec<TokenStream2> = Vec::new();
+                attlist.attdefs.iter().for_each(|attdef| {
+                    let name = format_ident!("{}", attdef.name.to_pascal_case());
+                    let (typename, token_stream) = attdef.to_token_stream(&mut context, &name);
+                    let (type_, default_decl) = match attdef.default_decl {
+                        parser::DefaultDecl::Implied => {
+                            (quote! { Option<#typename> }, quote! { None })
+                        }
+                        parser::DefaultDecl::Required => {
+                            (quote! { #typename }, quote! { panic!("This is Required.") })
+                        }
+                        parser::DefaultDecl::Fixed(ref fixed) => {
+                            let default = format_ident!("{}", fixed.to_string());
+                            (quote!( #typename ), quote! { #default })
+                        }
+                        parser::DefaultDecl::Default(ref default) => {
+                            let default = format_ident!("{}", default.to_string());
+                            (quote!( #typename ), quote! { #default })
+                        }
+                    };
+                    if !token_stream.is_empty() {
+                        tokens.push(quote! {
+                            impl Default for #typename {
+                                fn default() -> #typename {
+                                    #default_decl
+                                }
+                            }
+                        });
+                    }
+                    names.push(name);
+                    types.push(type_);
+                    tokens.push(token_stream);
+                });
+                tokens.push(quote! {
+                    #[derive(Clone, Debug)]
+                    pub struct #attrname {
+                        #(#names: #types), *
+                    }
+                });
+                // dbg!(&attlist);
             }
             parser::ElementType::Comment(_) => {
                 //
@@ -433,5 +474,83 @@ impl ToTokenStream for parser::Name {
             context.insert(ident.clone(), token.clone());
             (ident, token.into())
         }
+    }
+}
+
+/// attdefs: [
+///     AttDef {
+///         name: Name(
+///             "align",
+///         ),
+///         atttype: EnumeratedType(
+///             Enumeration(
+///                 Enumeration(
+///                     [
+///                         Nmtoken(
+///                             "left",
+///                         ),
+///                         Nmtoken(
+///                             "center",
+///                         ),
+///                         Nmtoken(
+///                             "right",
+///                         ),
+///                     ],
+///                 ),
+///             ),
+///         ),
+///         default_decl: Implied,
+///     },
+///     AttDef {
+///         name: Name(
+///             "width",
+///         ),
+///         atttype: StringType,
+///         default_decl: Implied,
+///     },
+/// ],
+impl ToTokenStream for parser::AttDef {
+    fn to_token_stream(&self, context: &mut Context, ident: &Ident) -> (Ident, TokenStream2) {
+        let mut tokens = Vec::new();
+        let (name, tokens) = match self.atttype {
+            parser::AttType::StringType => (format_ident!("{}", "String"), tokens),
+            parser::AttType::TokenizedType(ref _tokenized_type) => {
+                // https://www.w3.org/TR/REC-xml/#NT-TokenizedType
+                // unimplemented!("TokenizedType {}", _tokenized_type);
+                eprintln!(
+                    "TokenizedType `{}` has been implemented as `String` type.",
+                    _tokenized_type
+                );
+                tokens.push(quote! { #[derive(Clone, Debug)] struct #ident(String); });
+                (ident.clone(), tokens)
+            }
+            parser::AttType::EnumeratedType(ref enumerated_type) => {
+                match enumerated_type {
+                    parser::EnumeratedType::NotationType(_notation_type) => {
+                        // FIXME: For compatibility, an attribute of type NOTATION MUST NOT be declared on an element declared EMPTY.
+                        unimplemented!("NotationType {}", _notation_type);
+                    }
+                    parser::EnumeratedType::Enumeration(enumeration) => {
+                        let name_types = format_ident!("{}Enumeration", ident);
+                        let variants = enumeration
+                            .iter()
+                            .map(|e| format_ident!("{}", e.to_pascal_case()));
+                        if context.get(&name_types).is_none() {
+                            let token = quote! {
+                                #[derive(Clone, Debug)]
+                                pub enum #name_types {
+                                    #(#variants, )*
+                                }
+                            };
+                            context.insert(name_types.clone(), token.clone());
+                            tokens.push(token);
+                        } else {
+                        }
+                        (name_types, tokens)
+                    }
+                }
+            }
+        };
+        (name, TokenStream2::from_iter(tokens.into_iter()))
     }
 }
