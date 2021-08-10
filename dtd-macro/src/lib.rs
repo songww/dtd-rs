@@ -30,12 +30,27 @@ impl Parse for DefinitionsOrPath {
     }
 }
 
+macro_rules! safe {
+    ($ident:expr) => {
+        match $ident.to_string().as_str() {
+            "as" | "break" | "const" | "continue" | "crate" | "else" | "enum" | "extern"
+            | "false" | "fn" | "for" | "if" | "impl" | "in" | "let" | "loop" | "match" | "mod"
+            | "move" | "mut" | "pub" | "ref" | "return" | "self" | "Self" | "static" | "struct"
+            | "super" | "trait" | "true" | "type" | "unsafe" | "use" | "where" | "while"
+            | "async" | "await" | "dyn" | "abstract" | "become" | "box" | "do" | "final"
+            | "macro" | "override" | "priv" | "typeof" | "unsized" | "virtual" | "yield"
+            | "try" | "union" => format_ident!("{}_", $ident),
+            _ => $ident,
+        }
+    };
+}
+
 /// Accept dtd file path in type AsRef<Path> or Definetions startswith '<' and endswith '>'.
 ///
 ///     dtd!($PATH);
 ///     dtd!($DEFINETIONS);
 ///
-/// For example:
+/// Example:
 ///
 ///     dtd!("testdata/docutils.dtd");
 ///     dtd! {
@@ -150,10 +165,10 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                             pub struct #struct_name;
                         };
                         // println!(" > EMPTY: {} {}", struct_name, token.to_string());
-                        // if context.get(&struct_name).is_none() {
-                        context.insert(struct_name.clone(), token.clone());
-                        tokens.push(token);
-                        // }
+                        if context.get(&struct_name).is_none() {
+                            context.insert(struct_name.clone(), token.clone());
+                            tokens.push(token);
+                        }
                     }
                     parser::ElementCategory::PCDATA => {
                         // String
@@ -162,10 +177,10 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                             pub struct #struct_name(pub String);
                         };
                         // println!(" > PCDATA: {}", struct_name);
-                        // if context.get(&struct_name).is_none() {
-                        context.insert(struct_name.clone(), token.clone());
-                        tokens.push(token);
-                        // }
+                        if context.get(&struct_name).is_none() {
+                            context.insert(struct_name.clone(), token.clone());
+                            tokens.push(token);
+                        }
                     }
                     parser::ElementCategory::CDATA => {
                         // String
@@ -226,10 +241,10 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                                     }
                                 };
                                 // println!(" > ZeroOrManyTimes: {}", struct_name);
-                                // context.entry(struct_name).or_insert_with(|| {
-                                tokens.push(token.clone());
-                                // token
-                                // });
+                                context.entry(struct_name).or_insert_with(|| {
+                                    tokens.push(token.clone());
+                                    token
+                                });
                             }
                             _ => unreachable!(),
                         }
@@ -237,12 +252,15 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                     parser::ElementCategory::Children(children) => {
                         let (ident, token_stream) =
                             children.to_token_stream(&mut context, &struct_name);
-                        // dbg!(&ident);
-                        // println!("{}", token_stream.to_string());
-                        context.entry(ident).or_insert_with(|| {
-                            tokens.push(token_stream.clone());
-                            token_stream
+                        let token = quote! {
+                            #[derive(Clone, Debug)]
+                            pub type #struct_name = #ident;
+                        };
+                        context.entry(struct_name).or_insert_with(|| {
+                            tokens.push(token.clone());
+                            token
                         });
+                        tokens.push(token_stream.clone());
                     }
                 }
             }
@@ -268,9 +286,9 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                             let default = default.to_string();
                             if !token_stream.is_empty() {
                                 tokens.push(quote! {
-                                    use ::std::convert::TryFrom;
                                     impl ::std::default::Default for #typename {
                                         fn default() -> #typename {
+                                            use ::std::convert::TryFrom;
                                             #typename::try_from(#default).unwrap()
                                         }
                                     }
@@ -279,17 +297,21 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                             quote!( #typename )
                         }
                     };
-                    names.push(name);
+                    // println!(
+                    //     "PascalCase:    {} -> snake_case:   {}",
+                    //     name,
+                    //     name.to_string().to_snake_case()
+                    // );
+                    names.push(safe!(format_ident!("{}", name.to_string().to_snake_case())));
                     types.push(typename);
                     tokens.push(token_stream);
                 });
                 tokens.push(quote! {
                     #[derive(Clone, Debug)]
                     pub struct #attrname {
-                        #(#names: #types), *
+                        #(pub #names: #types), *
                     }
                 });
-                // dbg!(&attlist);
             }
             parser::ElementType::Comment(_) => {
                 //
@@ -324,39 +346,38 @@ where
                 let (ident, mut token_stream) = opt.to_token_stream(context, ident);
                 let name = format_ident!("Opt{}", ident, span = ident.span());
 
-                // let defined = context.get(&ident).is_some();
-                // if defined {
-                //     // (ident, TokenStream2::new())
-                // } else {
-                let token = quote! {
-                    type #name = Option<#ident>;
-                };
+                let defined = context.get(&name).is_some();
+                if defined {
+                    // (ident, TokenStream2::new())
+                } else {
+                    let token = quote! {
+                        pub type #name = Option<#ident>;
+                    };
 
-                context.insert(ident.clone(), token.clone());
+                    context.insert(name.clone(), token.clone());
 
-                token_stream.extend(token);
-                // }
+                    token_stream.extend(token);
+                }
 
-                (ident, token_stream)
+                (name, token_stream)
             }
             parser::Repeatable::AtLeastOnce(more_than_zero) => {
                 let (ident, mut token_stream) = more_than_zero.to_token_stream(context, ident);
                 let name = format_ident!("NonEmpty{}", ident, span = ident.span());
 
-                let token = quote! {
-                    type #name = Vec<#ident>;
-                };
-
-                let defined = context.get(&ident).is_some();
+                let defined = context.get(&name).is_some();
 
                 if !defined {
-                    context.insert(ident.clone(), token.clone());
+                    let token = quote! {
+                        pub type #name = Vec<#ident>;
+                    };
+                    context.insert(name.clone(), token.clone());
 
                     token_stream.extend(token);
                 } else {
                     //
                 }
-                (ident, token_stream)
+                (name, token_stream)
             }
             parser::Repeatable::ZeroOrManyTimes(multi_or_empty) => {
                 let (ident, mut token_stream) = multi_or_empty.to_token_stream(context, ident);
@@ -369,17 +390,17 @@ where
                 // println!("ZeroOrManyTimes -> {}", name);
 
                 let token = quote! {
-                    type #name = Vec<#ident>;
+                    pub type #name = Vec<#ident>;
                 };
 
-                // let defined = context.get(&ident).is_some();
-                // if !defined {
-                // context.insert(ident.clone(), token.clone());
+                let defined = context.get(&name).is_some();
+                if !defined {
+                    context.insert(name.clone(), token.clone());
 
-                token_stream.extend(token);
-                // } else {
-                //     // TODO
-                // }
+                    token_stream.extend(token);
+                } else {
+                    // TODO
+                }
 
                 (ident, token_stream)
             }
@@ -412,20 +433,25 @@ where
         for name in names_iter {
             ident = format_ident!("{}{}", ident, name, span = ident.span());
         }
+        let fields = names
+            .iter()
+            .map(|name| safe!(format_ident!("{}", name.to_string().to_snake_case())));
 
         let token = quote! {
-            type #ident = (#(#names),*);
+            #[derive(Clone, Debug)]
+            pub struct #ident {
+                #(pub #fields: #names), *
+            }
         };
+        let defined = context.get(&ident).is_some();
 
-        // let defined = context.get(&ident).is_some();
+        if !defined {
+            context.insert(ident.clone(), token.clone());
 
-        // if !defined {
-        context.insert(ident.clone(), token.clone());
-
-        token_streams.push(token);
-        // } else {
-        //     // TODO: Ensure that's same.
-        // }
+            token_streams.push(token);
+        } else {
+            // TODO: Ensure that's same.
+        }
         (ident, TokenStream2::from_iter(token_streams.into_iter()))
     }
 }
@@ -460,8 +486,8 @@ impl ToTokenStream for parser::Name {
     fn to_token_stream(&self, context: &mut Context, ident: &Ident) -> (Ident, TokenStream2) {
         let ident = format_ident!("{}", self.as_str().to_pascal_case(), span = ident.span());
 
-        let exists = context.get(&ident).is_some();
-        if exists {
+        let defined = context.get(&ident).is_some();
+        if defined {
             // println!(" --> {} already exists.", ident.to_string());
             (ident, TokenStream2::new())
         } else {
@@ -515,7 +541,8 @@ impl ToTokenStream for parser::AttDef {
                 let ident = format_ident!("{}StringType", ident);
                 if context.get(&ident).is_none() {
                     let token = quote! {
-                        #[derive(Clone, Debug)] struct #ident(String);
+                        #[derive(Clone, Debug)]
+                        pub struct #ident(pub String);
                         impl ::std::convert::TryFrom<&str> for #ident {
                             type Error = String;
                             fn try_from(s: &str) -> Result<#ident, Self::Error> {
@@ -537,7 +564,8 @@ impl ToTokenStream for parser::AttDef {
                         _tokenized_type
                     );
                     let token = quote! {
-                        #[derive(Clone, Debug)] struct #ident(String);
+                        #[derive(Clone, Debug)]
+                        pub struct #ident(pub String);
                         impl ::std::convert::TryFrom<&str> for #ident {
                             type Error = String;
                             fn try_from(s: &str) -> Result<#ident, Self::Error> {
