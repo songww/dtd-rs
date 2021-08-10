@@ -1,6 +1,6 @@
 [package]
 name = "dtd-rs"
-version = "0.1.0-alpha1"
+version = "0.1.0-alpha2"
 edition = "2018"
 authors = ["songww <sww4718168@163.com>"]
 description = "A DTD file parser."
@@ -15,7 +15,7 @@ readme = "README.md"
 name = "dtd"
 
 [dependencies]
-dtd-macro = { version = "0.1.0-alpha1", path = "./dtd-macro" }
+dtd-macro = { version = "0.1.0-alpha2", path = "./dtd-macro" }
 dtd-parser = { version = "0.1.0-alpha3", path = "./dtd-parser" }
 
 [features]
