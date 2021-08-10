@@ -8,7 +8,7 @@ use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote, quote_spanned, TokenStreamExt};
 use syn::parse::{Parse, ParseStream, Result};
-use syn::{parse_macro_input, Expr, Ident, LitStr, Token, Type, Visibility};
+use syn::{parse_macro_input, Ident, LitStr};
 
 use dtd_parser as parser;
 
@@ -256,33 +256,31 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                 attlist.attdefs.iter().for_each(|attdef| {
                     let name = format_ident!("{}", attdef.name.to_pascal_case());
                     let (typename, token_stream) = attdef.to_token_stream(&mut context, &name);
-                    let (type_, default_decl) = match attdef.default_decl {
+                    let typename = match attdef.default_decl {
                         parser::DefaultDecl::Implied => {
-                            (quote! { Option<#typename> }, quote! { None })
+                            quote! { Option<#typename> }
                         }
                         parser::DefaultDecl::Required => {
-                            (quote! { #typename }, quote! { panic!("This is Required.") })
+                            quote! { #typename }
                         }
-                        parser::DefaultDecl::Fixed(ref fixed) => {
-                            let default = format_ident!("{}", fixed.to_string());
-                            (quote!( #typename ), quote! { #default })
-                        }
-                        parser::DefaultDecl::Default(ref default) => {
-                            let default = format_ident!("{}", default.to_string());
-                            (quote!( #typename ), quote! { #default })
+                        parser::DefaultDecl::Fixed(ref default)
+                        | parser::DefaultDecl::Default(ref default) => {
+                            let default = default.to_string();
+                            if !token_stream.is_empty() {
+                                tokens.push(quote! {
+                                    use ::std::convert::TryFrom;
+                                    impl ::std::default::Default for #typename {
+                                        fn default() -> #typename {
+                                            #typename::try_from(#default).unwrap()
+                                        }
+                                    }
+                                });
+                            }
+                            quote!( #typename )
                         }
                     };
-                    if !token_stream.is_empty() {
-                        tokens.push(quote! {
-                            impl Default for #typename {
-                                fn default() -> #typename {
-                                    #default_decl
-                                }
-                            }
-                        });
-                    }
                     names.push(name);
-                    types.push(type_);
+                    types.push(typename);
                     tokens.push(token_stream);
                 });
                 tokens.push(quote! {
@@ -401,7 +399,7 @@ impl ToTokenStream for parser::Child {
 
 impl<T> ToTokenStream for parser::Seq<T>
 where
-    T: ToTokenStream + std::fmt::Display,
+    T: ToTokenStream + ::std::fmt::Display,
 {
     fn to_token_stream(&self, context: &mut Context, ident: &Ident) -> (Ident, TokenStream2) {
         let (names, mut token_streams): (Vec<_>, Vec<_>) = self
@@ -434,7 +432,7 @@ where
 
 impl<T> ToTokenStream for parser::Choices<T>
 where
-    T: ToTokenStream + std::fmt::Display,
+    T: ToTokenStream + ::std::fmt::Display,
 {
     fn to_token_stream(&self, context: &mut Context, ident: &Ident) -> (Ident, TokenStream2) {
         let ident = format_ident!("{}Choices", ident, span = ident.span());
@@ -513,16 +511,44 @@ impl ToTokenStream for parser::AttDef {
     fn to_token_stream(&self, context: &mut Context, ident: &Ident) -> (Ident, TokenStream2) {
         let mut tokens = Vec::new();
         let (name, tokens) = match self.atttype {
-            parser::AttType::StringType => (format_ident!("{}", "String"), tokens),
+            parser::AttType::StringType => {
+                let ident = format_ident!("{}StringType", ident);
+                if context.get(&ident).is_none() {
+                    let token = quote! {
+                        #[derive(Clone, Debug)] struct #ident(String);
+                        impl ::std::convert::TryFrom<&str> for #ident {
+                            type Error = String;
+                            fn try_from(s: &str) -> Result<#ident, Self::Error> {
+                                Ok(#ident(s.to_string()))
+                            }
+                        }
+                    };
+                    context.insert(ident.clone(), token.clone());
+                    tokens.push(token);
+                }
+                (ident, tokens)
+            }
             parser::AttType::TokenizedType(ref _tokenized_type) => {
-                // https://www.w3.org/TR/REC-xml/#NT-TokenizedType
-                // unimplemented!("TokenizedType {}", _tokenized_type);
-                eprintln!(
-                    "TokenizedType `{}` has been implemented as `String` type.",
-                    _tokenized_type
-                );
-                tokens.push(quote! { #[derive(Clone, Debug)] struct #ident(String); });
-                (ident.clone(), tokens)
+                // FIXME: https://www.w3.org/TR/REC-xml/#NT-TokenizedType
+                let ident = format_ident!("{}TokenizedType", ident);
+                if context.get(&ident).is_none() {
+                    eprintln!(
+                        "TokenizedType `{}` has been implemented as `String`.",
+                        _tokenized_type
+                    );
+                    let token = quote! {
+                        #[derive(Clone, Debug)] struct #ident(String);
+                        impl ::std::convert::TryFrom<&str> for #ident {
+                            type Error = String;
+                            fn try_from(s: &str) -> Result<#ident, Self::Error> {
+                                Ok(#ident(s.to_string()))
+                            }
+                        }
+                    };
+                    context.insert(ident.clone(), token.clone());
+                    tokens.push(token);
+                }
+                (ident, tokens)
             }
             parser::AttType::EnumeratedType(ref enumerated_type) => {
                 match enumerated_type {
@@ -531,15 +557,31 @@ impl ToTokenStream for parser::AttDef {
                         unimplemented!("NotationType {}", _notation_type);
                     }
                     parser::EnumeratedType::Enumeration(enumeration) => {
-                        let name_types = format_ident!("{}Enumeration", ident);
+                        let name_types = format_ident!("{}EnumerationType", ident);
                         let variants = enumeration
                             .iter()
                             .map(|e| format_ident!("{}", e.to_pascal_case()));
+                        let variants2 = variants.clone();
+                        let values = enumeration.iter().map(|v| {
+                            let v = v.as_str();
+                            quote! { #v }
+                        });
+                        let values2: Vec<&str> = enumeration.iter().map(|v| v.as_str()).collect();
+                        let values2 = values2.join(", ");
                         if context.get(&name_types).is_none() {
                             let token = quote! {
                                 #[derive(Clone, Debug)]
                                 pub enum #name_types {
                                     #(#variants, )*
+                                }
+                                impl ::std::convert::TryFrom<&str> for #name_types {
+                                    type Error = String;
+                                    fn try_from(s: &str) -> Result<#name_types, Self::Error> {
+                                        match s {
+                                            #(#values => Ok(#name_types::#variants2),)*
+                                            _ => Err(format!("value must be one of `{}`, but not `{}`.", #values2, s))
+                                        }
+                                    }
                                 }
                             };
                             context.insert(name_types.clone(), token.clone());
