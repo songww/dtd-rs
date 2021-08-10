@@ -1,6 +1,6 @@
 [package]
 name = "dtd-rs"
-version = "0.1.0-alpha0"
+version = "0.1.0-alpha1"
 edition = "2018"
 authors = ["songww <sww4718168@163.com>"]
 description = "A DTD file parser."
