@@ -1,4 +1,4 @@
-#![feature(proc_macro_diagnostic)]
+#![cfg_attr(is_nightly, feature(proc_macro_diagnostic))]
 
 use std::collections::HashMap;
 use std::iter::FromIterator;
@@ -106,34 +106,74 @@ pub fn dtd(input: TokenStream) -> TokenStream {
         DefinitionsOrPath::Path(path) => {
             let value = path.value();
             if !value.ends_with(".dtd") {
-                path.span()
-                    .unwrap()
-                    .error(&format!(
-                        "dtd file path shold ends with `.dtd`, but got {}.",
-                        &value
-                    ))
-                    .emit();
-                return TokenStream::new();
+                #[cfg(is_nightly)]
+                {
+                    path.span()
+                        .unwrap()
+                        .error(&format!(
+                            "dtd file path shold ends with `.dtd`, but got {}.",
+                            &value
+                        ))
+                        .emit();
+                    return TokenStream::new();
+                }
+                #[cfg(not(is_nightly))]
+                {
+                    let mut token_stream = TokenStream2::new();
+                    token_stream.extend(quote_spanned! {
+                        path.span() => compiler_error!(
+                            "dtd file path shold ends with `.dtd`, but got {}.",
+                            &value
+                        )
+                    });
+                    return token_stream.into();
+                }
             }
             let pathbuf = match std::path::PathBuf::from(value).canonicalize() {
                 Ok(absolute) => absolute,
                 Err(err) => {
-                    path.span()
-                        .unwrap()
-                        .error(&format!("invald dtd file path: `{}`.", err))
-                        .emit();
-                    return TokenStream::new();
+                    #[cfg(is_nightly)]
+                    {
+                        path.span()
+                            .unwrap()
+                            .error(&format!("invald dtd file path: `{}`.", err))
+                            .emit();
+                        return TokenStream::new();
+                    };
+                    #[cfg(not(is_nightly))]
+                    {
+                        let mut token_stream = TokenStream2::new();
+                        token_stream.extend(quote_spanned! {
+                            path.span() => compiler_error!(
+                                "invald dtd file path: `{}`.", err
+                            )
+                        });
+                        return token_stream.into();
+                    }
                 }
             };
             if !pathbuf.exists() {
-                path.span()
-                    .unwrap()
-                    .error(&format!(
-                        "dtd file `{}` dose not exists!",
-                        pathbuf.display()
-                    ))
-                    .emit();
-                return TokenStream::new();
+                #[cfg(is_nightly)]
+                {
+                    path.span()
+                        .unwrap()
+                        .error(&format!(
+                            "dtd file `{}` dose not exists!",
+                            pathbuf.display()
+                        ))
+                        .emit();
+                    return TokenStream::new();
+                }
+                #[cfg(not(is_nightly))]
+                {
+                    return quote_spanned! {
+                        path.span() => compiler_error!(
+                            "dtd file `{}` dose not exists!",
+                            pathbuf.display()
+                        )
+                    }
+                    .into();
+                }
             }
             (parser::parse(pathbuf), path)
         }
@@ -142,8 +182,20 @@ pub fn dtd(input: TokenStream) -> TokenStream {
     let definitions = match parsing {
         Ok(definitions) => definitions,
         Err(err) => {
-            span.span().unwrap().error(&err).emit();
-            return TokenStream::new();
+            #[cfg(is_nightly)]
+            {
+                span.span().unwrap().error(&err).emit();
+                return TokenStream::new();
+            }
+            #[cfg(not(is_nightly))]
+            {
+                return quote_spanned! {
+                    span.span() => compiler_error!(
+                        "{}", &err
+                    )
+                }
+                .into();
+            }
         }
     };
 

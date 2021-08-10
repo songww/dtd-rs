@@ -90,13 +90,14 @@ dependencies = [
 
 [[package]]
 name = "dtd-macro"
-version = "0.1.0-alpha1"
+version = "0.1.0-alpha2"
 dependencies = [
  "Inflector",
  "dtd-parser",
  "proc-macro2",
  "quote",
  "syn",
+ "version_check",
 ]
 
 [[package]]
@@ -114,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "dtd-rs"
-version = "0.1.0-alpha1"
+version = "0.1.0-alpha2"
 dependencies = [
  "dtd-macro",
  "dtd-parser",
