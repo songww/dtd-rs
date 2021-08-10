@@ -489,7 +489,7 @@ pub fn parse<F: AsRef<Path>>(f: F) -> std::result::Result<Vec<ElementType>, Stri
     let span = LocatedSpan::new_extra(content.as_str(), tracer);
     let resolved = resolve_references(span, &definitions);
     // println!("resolved -----------------------------\n{}", &resolved);
-    std::fs::write("/tmp/resolved.dtd", &resolved).unwrap();
+    // std::fs::write("/tmp/resolved.dtd", &resolved).unwrap();
     let span = LocatedSpan::new_extra(resolved.as_str(), tracer);
     #[cfg(feature = "trace")]
     histogram();
