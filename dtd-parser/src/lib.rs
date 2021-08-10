@@ -23,6 +23,11 @@ mod attlist;
 mod element;
 mod entity;
 
+pub use attlist::{
+    AttDef, AttType, AttValue, AttlistDecl, DefaultDecl, EnumeratedType, Enumeration, NotationType,
+};
+pub use element::{Child, Choices, ElementCategory, ElementDecl, Seq};
+
 type Span<'i> = LocatedSpan<&'i str, TracableInfo>;
 
 type Result<'i, T> = nom::IResult<Span<'i>, T, GreedyError<Span<'i>, ErrorKind>>;
@@ -69,7 +74,7 @@ pub struct CDATA(String);
 #[derive(Debug, Display)]
 pub enum Repeatable<T> {
     /// Occur once.
-    #[display(fmt = "{}+", "_0")]
+    #[display(fmt = "{}", "_0")]
     Once(T),
     /// Occur once or more times.
     #[display(fmt = "{}+", "_0")]
@@ -103,7 +108,7 @@ fn comment_decl(i: Span) -> Result<CommentDecl> {
 ///     NameChar       ::=       NameStartChar | "-" | "." | [0-9] | #xB7 | [#x0300-#x036F] | [#x203F-#x2040]
 ///     Name       ::=       NameStartChar (NameChar)*
 /// ```
-#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+#[derive(Clone, Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
 pub struct Name(String);
 
 impl Name {
@@ -191,7 +196,7 @@ fn name(i: Span) -> Result<Name> {
 }
 
 ///     Nmtoken ::= (NameChar)+
-#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+#[derive(Clone, Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
 pub struct Nmtoken(String);
 
 ///     Nmtoken ::= (NameChar)+
@@ -212,8 +217,12 @@ fn nmtokens(i: Span) -> Result<Vec<Nmtoken>> {
     separated_list1(multispace1, nmtoken)(i)
 }
 
-#[derive(Debug, AsMut, AsRef, Deref, DerefMut, Into)]
-pub struct MixedPCDATA(Vec<NameOrReference>);
+#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+#[display(
+    fmt = "( | {})",
+    "std::iter::once(\"#PCDATA\".to_string()).chain(_0.iter().map(|v|v.to_string())).collect::<Vec<_>>().join(\" | \")"
+)]
+pub struct MixedPCDATA(pub Vec<Name>);
 
 #[derive(Debug, TryInto)]
 pub enum NameOrReference {
@@ -231,13 +240,12 @@ fn map_pereference(i: Span) -> Result<NameOrReference> {
     map(pereference, |n| NameOrReference::Reference(n))(i)
 }
 
-/*
-fn name_or_reference(i: &str) -> Result<NameOrReference> {
+#[tracable_parser]
+fn name_or_reference(i: Span) -> Result<NameOrReference> {
     alt((map_name, map_pereference))(i)
 }
-*/
 
-#[derive(Debug, Display, TryInto)]
+#[derive(Clone, Debug, Display, TryInto)]
 pub enum CharRef {
     #[display(fmt = "{}", "_0")]
     Decimal(isize),
@@ -261,13 +269,13 @@ fn char_ref(i: Span) -> Result<CharRef> {
     ))(i)
 }
 
-#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+#[derive(Clone, Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
 pub struct EntityRef(Name);
 
-#[derive(Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
+#[derive(Clone, Debug, Display, AsMut, AsRef, Deref, DerefMut, Into)]
 pub struct PEReference(Name);
 
-#[derive(Debug, Display, TryInto)]
+#[derive(Clone, Debug, Display, TryInto)]
 pub enum Reference {
     #[display(fmt = "{}", "_0")]
     CharRef(CharRef),
@@ -340,11 +348,15 @@ fn is_pubid_char(c: char) -> bool {
         || "-'()+,./:=?;!*#@$_%".contains(c))
 }
 
-#[derive(Debug, TryInto)]
+#[derive(Debug, Display, TryInto)]
 pub enum ElementType {
+    #[display(fmt = "{}", "_0")]
     Element(element::ElementDecl),
+    #[display(fmt = "{}", "_0")]
     Entity(entity::EntityDecl),
+    #[display(fmt = "{}", "_0")]
     Attlist(attlist::AttlistDecl),
+    #[display(fmt = "{}", "_0")]
     Comment(CommentDecl),
 }
 
@@ -409,13 +421,16 @@ pub fn resolve_entity_definitions<P: AsRef<Path>, I: Into<Option<P>>>(
                     let include = if let Some(ref path) = path {
                         let path: &Path = path.as_ref();
                         if let Some(_ext) = path.extension() {
-                            path.with_file_name(system_literal.as_ref())
+                            path.canonicalize()
+                                .unwrap()
+                                .with_file_name(system_literal.as_ref())
                         } else {
-                            path.join(system_literal.as_ref())
+                            path.canonicalize().unwrap().join(system_literal.as_ref())
                         }
                     } else {
                         PathBuf::from(system_literal.as_ref())
                     };
+                    // FIXME: this is still not defined.
                     match std::fs::read_to_string(&include) {
                         Err(err) => {
                             eprintln!(
@@ -474,7 +489,7 @@ pub fn parse<F: AsRef<Path>>(f: F) -> std::result::Result<Vec<ElementType>, Stri
     let span = LocatedSpan::new_extra(content.as_str(), tracer);
     let resolved = resolve_references(span, &definitions);
     // println!("resolved -----------------------------\n{}", &resolved);
-    std::fs::write("/tmp/resolved.dtd", &resolved).unwrap();
+    // std::fs::write("/tmp/resolved.dtd", &resolved).unwrap();
     let span = LocatedSpan::new_extra(resolved.as_str(), tracer);
     #[cfg(feature = "trace")]
     histogram();
@@ -584,4 +599,19 @@ The formal public identifier for this DTD is::
         let result = pereference(span("%align-h.att;")).finish();
         assert!(result.is_ok(), "{:?}", result.as_ref().unwrap_err());
     }
+}
+
+#[cfg(test)]
+#[macro_export]
+macro_rules! assert_ok {
+    ($span:ident, $res:expr) => {
+        match $res {
+            Ok(_) => {
+                assert!(true);
+            }
+            Err(err) => {
+                assert!(false, "{}", ::nom_greedyerror::convert_error($span, err));
+            }
+        }
+    };
 }

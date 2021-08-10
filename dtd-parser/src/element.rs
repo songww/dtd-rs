@@ -1,33 +1,52 @@
+use std::{fmt::Display, ops::Deref};
+
 use nom::{
     branch::alt,
     bytes::complete::tag,
-    character::complete::{multispace0, multispace1},
-    combinator::{map, opt},
+    character::complete::{multispace0, multispace1, space0},
+    combinator::{map, opt, value},
     multi::{many0, many1},
     sequence::{preceded, terminated, tuple},
 };
 use nom_tracable::tracable_parser;
 
-use super::{map_name, map_pereference, name, MixedPCDATA, Name, Repeatable, Result, Span};
+use super::{name, MixedPCDATA, Name, Repeatable, Result, Span};
 
 /// 元素是 XML 以及 HTML 文档的主要构建模块。
 ///
 /// HTML 元素的例子是 "body" 和 "table"。
 /// XML 元素的例子是 "note" 和 "message" 。
 /// 元素可包含文本、其他元素或者是空的。空的 HTML 元素的例子是 "hr"、"br" 以及 "img"。
-#[derive(Debug)]
+#[derive(Debug, Display)]
+#[display(fmt = "<!ELEMENT {} {}>", name, category)]
 pub struct ElementDecl {
     name: Name,
     category: ElementCategory,
 }
 
-#[derive(Debug)]
+impl ElementDecl {
+    pub fn name(&self) -> &str {
+        self.name.deref()
+    }
+
+    pub fn category(&self) -> &ElementCategory {
+        &self.category
+    }
+}
+
+#[derive(Debug, Display)]
 pub enum ElementCategory {
+    #[display(fmt = "EMPTY")]
     Empty,
+    #[display(fmt = "#PCDATA")]
     PCDATA,
+    #[display(fmt = "#CDATA")]
     CDATA,
+    #[display(fmt = "ANY")]
     Any,
-    Mixed(MixedPCDATA),
+    #[display(fmt = "{}", "_0")]
+    Mixed(Repeatable<MixedPCDATA>),
+    #[display(fmt = "{}", "_0")]
     Children(Repeatable<Child>),
 }
 
@@ -45,39 +64,68 @@ fn parenthesis_close(i: Span) -> Result<Span> {
 /// 			| '(' S? '#PCDATA' S? ')'
 #[tracable_parser]
 fn mixed(i: Span) -> Result<ElementCategory> {
-    map(
+    alt((
+        map(mixed_many_names, |x| {
+            ElementCategory::Mixed(Repeatable::ZeroOrManyTimes(MixedPCDATA(x)))
+        }),
+        map(mixed_no_names, |_| {
+            ElementCategory::Mixed(Repeatable::Once(MixedPCDATA(Vec::new())))
+        }),
+    ))(i)
+}
+
+#[tracable_parser]
+fn mixed_no_names(i: Span) -> Result<()> {
+    value(
+        (),
         tuple((
-            tuple((tag("("), multispace0, tag("#PCDATA"), multispace0)),
-            alt((
-                map(tuple((multispace0, tag(")"))), |_| MixedPCDATA(Vec::new())),
-                map(
-                    terminated(
-                        many0(tuple((
-                            multispace0,
-                            tag("|"),
-                            multispace0,
-                            alt((map_name, map_pereference)),
-                        ))),
-                        tuple((multispace0, tag(")*"))),
-                    ),
-                    |x| MixedPCDATA(x.into_iter().map(|(_, _, _, x)| x).collect()),
-                ),
-            )),
+            tag("("),
+            multispace0,
+            tag("#PCDATA"),
+            multispace0,
+            tag(")"),
+            space0,
         )),
-        |(_, x)| ElementCategory::Mixed(x),
     )(i)
 }
 
-#[derive(Debug)]
-pub struct Seq<T>(Vec<T>);
+#[tracable_parser]
+fn mixed_many_names(i: Span) -> Result<Vec<Name>> {
+    map(
+        tuple((
+            tuple((tag("("), multispace0, tag("#PCDATA"), multispace0)),
+            many0(preceded(tuple((multispace0, tag("|"), multispace0)), name)),
+            tuple((multispace0, tag(")*"))),
+        )),
+        |(_, x, _)| x,
+    )(i)
+}
 
-#[derive(Debug)]
-pub struct Choices<T>(Vec<T>);
+#[derive(AsRef, AsMut, Debug, Deref, DerefMut, Display, IntoIterator)]
+#[display(
+    fmt = "({})",
+    "_0.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(\", \")"
+)]
+pub struct Seq<T>(Vec<T>)
+where
+    T: Display;
 
-#[derive(Debug)]
+#[derive(AsRef, AsMut, Debug, Deref, DerefMut, Display, IntoIterator)]
+#[display(
+    fmt = "({})",
+    "_0.iter().map(|v|v.to_string()).collect::<Vec<_>>().join(\" | \")"
+)]
+pub struct Choices<T>(Vec<T>)
+where
+    T: Display;
+
+#[derive(Debug, Display)]
 pub enum Child {
+    #[display(fmt = "{}", "_0")]
     Name(Name),
+    #[display(fmt = "{}", "_0")]
     Seq(Seq<Repeatable<Child>>),
+    #[display(fmt = "{}", "_0")]
     Choices(Choices<Repeatable<Child>>),
 }
 
@@ -248,26 +296,30 @@ pub(super) fn element_decl(i: Span) -> Result<ElementDecl> {
 #[cfg(test)]
 mod tests {
 
-    use super::{children, element_decl};
+    use super::{children, element_decl, mixed};
+    use crate::assert_ok;
     use crate::span;
+
     use nom::Finish;
 
     #[test]
     fn test_element_decl() {
-        let el = element_decl(span("<!ELEMENT b (#PCDATA)>")).finish();
-        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
-        let el = element_decl(span("<!ELEMENT p (#PCDATA|a|ul|b|i|em)*>")).finish();
-        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
+        let input = span("<!ELEMENT b (#PCDATA)>");
+        let el = element_decl(input).finish();
+        assert_ok!(input, el);
+        let input = span("<!ELEMENT p (#PCDATA|a|ul|b|i|em)*>");
+        let el = element_decl(input).finish();
+        assert_ok!(input, el);
         let el = element_decl(span(
             "<!ELEMENT p (#PCDATA | %font; | %phrase; | %special; | %form;)* >",
         ))
         .finish();
-        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
+        assert_ok!(input, el);
     }
 
     #[test]
     fn test_element_decl_multiline() {
-        let el = element_decl(span(
+        let input = span(
             r#"<!ELEMENT generated  (#PCDATA |   emphasis | strong | literal | math
     | reference | footnote_reference | citation_reference
     | substitution_reference | title_reference
@@ -275,8 +327,9 @@ mod tests {
     | inline | problematic | generated
     | target | image | raw
         )* >"#,
-        ));
-        assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
+        );
+        let el = element_decl(input).finish();
+        assert_ok!(input, el);
     }
 
     #[test]
@@ -308,5 +361,12 @@ mod tests {
     fn test_child() {
         let el = children(span("(title, subtitle?)?"));
         assert!(el.is_ok(), "{:?}", el.as_ref().unwrap_err());
+    }
+
+    #[test]
+    fn test_mixed_simple() {
+        let input = span("<!ELEMENT option_string (#PCDATA)>");
+        let el = element_decl(input).finish();
+        assert_ok!(input, el);
     }
 }
