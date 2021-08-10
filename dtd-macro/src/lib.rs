@@ -230,13 +230,13 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                                         span = struct_name.span()
                                     );
                                     quote! {
-                                        #typ(Vec<#typ>)
+                                        #typ(::std::vec::Vec<#typ>)
                                     }
                                 });
                                 let token = quote! {
                                     #[derive(Clone, Debug)]
                                     pub enum #struct_name {
-                                        PCDATA(Vec<String>),
+                                        PCDATA(::std::vec::Vec<String>),
                                         #(#fields, )*
                                     }
                                 };
@@ -253,7 +253,6 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                         let (ident, token_stream) =
                             children.to_token_stream(&mut context, &struct_name);
                         let token = quote! {
-                            #[derive(Clone, Debug)]
                             pub type #struct_name = #ident;
                         };
                         context.entry(struct_name).or_insert_with(|| {
@@ -276,7 +275,7 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                     let (typename, token_stream) = attdef.to_token_stream(&mut context, &name);
                     let typename = match attdef.default_decl {
                         parser::DefaultDecl::Implied => {
-                            quote! { Option<#typename> }
+                            quote! { ::std::option::Option<#typename> }
                         }
                         parser::DefaultDecl::Required => {
                             quote! { #typename }
@@ -297,11 +296,6 @@ pub fn dtd(input: TokenStream) -> TokenStream {
                             quote!( #typename )
                         }
                     };
-                    // println!(
-                    //     "PascalCase:    {} -> snake_case:   {}",
-                    //     name,
-                    //     name.to_string().to_snake_case()
-                    // );
                     names.push(safe!(format_ident!("{}", name.to_string().to_snake_case())));
                     types.push(typename);
                     tokens.push(token_stream);
@@ -351,7 +345,7 @@ where
                     // (ident, TokenStream2::new())
                 } else {
                     let token = quote! {
-                        pub type #name = Option<#ident>;
+                        pub type #name = ::std::option::Option<#ident>;
                     };
 
                     context.insert(name.clone(), token.clone());
@@ -369,7 +363,7 @@ where
 
                 if !defined {
                     let token = quote! {
-                        pub type #name = Vec<#ident>;
+                        pub type #name = ::std::vec::Vec<#ident>;
                     };
                     context.insert(name.clone(), token.clone());
 
@@ -390,7 +384,7 @@ where
                 // println!("ZeroOrManyTimes -> {}", name);
 
                 let token = quote! {
-                    pub type #name = Vec<#ident>;
+                    pub type #name = ::std::vec::Vec<#ident>;
                 };
 
                 let defined = context.get(&name).is_some();
@@ -423,7 +417,7 @@ where
     T: ToTokenStream + ::std::fmt::Display,
 {
     fn to_token_stream(&self, context: &mut Context, ident: &Ident) -> (Ident, TokenStream2) {
-        let (names, mut token_streams): (Vec<_>, Vec<_>) = self
+        let (names, mut token_streams): (::std::vec::Vec<_>, ::std::vec::Vec<_>) = self
             .iter()
             .map(|c| c.to_token_stream(context, ident))
             .unzip();
@@ -544,9 +538,9 @@ impl ToTokenStream for parser::AttDef {
                         #[derive(Clone, Debug)]
                         pub struct #ident(pub String);
                         impl ::std::convert::TryFrom<&str> for #ident {
-                            type Error = String;
+                            type Error = ::std::string::String;
                             fn try_from(s: &str) -> Result<#ident, Self::Error> {
-                                Ok(#ident(s.to_string()))
+                                ::std::result::Result::Ok(#ident(s.to_string()))
                             }
                         }
                     };
@@ -567,9 +561,9 @@ impl ToTokenStream for parser::AttDef {
                         #[derive(Clone, Debug)]
                         pub struct #ident(pub String);
                         impl ::std::convert::TryFrom<&str> for #ident {
-                            type Error = String;
+                            type Error = ::std::string::String;
                             fn try_from(s: &str) -> Result<#ident, Self::Error> {
-                                Ok(#ident(s.to_string()))
+                                ::std::result::Result::Ok(#ident(s.to_string()))
                             }
                         }
                     };
@@ -603,11 +597,11 @@ impl ToTokenStream for parser::AttDef {
                                     #(#variants, )*
                                 }
                                 impl ::std::convert::TryFrom<&str> for #name_types {
-                                    type Error = String;
+                                    type Error = ::std::string::String;
                                     fn try_from(s: &str) -> Result<#name_types, Self::Error> {
                                         match s {
-                                            #(#values => Ok(#name_types::#variants2),)*
-                                            _ => Err(format!("value must be one of `{}`, but not `{}`.", #values2, s))
+                                            #(#values => ::std::result::Result::Ok(#name_types::#variants2),)*
+                                            _ => ::std::result::Result::Err(format!("value must be one of `{}`, but not `{}`.", #values2, s))
                                         }
                                     }
                                 }
